@@ -1,14 +1,14 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
 import { CalendarDays, CalendarX2, Clock, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cn, formatDuration } from "@/lib/format";
-import { dayPartOf, isWorkingDay, type DayPart } from "@/lib/slots";
+import { isWorkingDay } from "@/lib/slots";
 import { addDays, formatClock, formatDayLabel, localDateString } from "@/lib/time";
 import type { ApiError, Barber, Shift, ShopSettings, TimeSlot } from "@/lib/types/domain";
 import { useBookingStore } from "@/store/booking-store";
 import { Button, Skeleton } from "../ui/primitives";
+import { TimeSlotPicker } from "./TimeSlotPicker";
 
 interface AvailabilityResponse {
   date: string;
@@ -22,7 +22,6 @@ type LoadState =
   | { kind: "ready"; data: AvailabilityResponse }
   | { kind: "error"; message: string };
 
-const PART_LABEL: Record<DayPart, string> = { morning: "Morning", afternoon: "Afternoon", evening: "Evening" };
 
 export function ScheduleStep({
   settings,
@@ -109,12 +108,6 @@ export function ScheduleStep({
     }
   }, [state, slot, setSlot]);
 
-  const grouped = useMemo(() => {
-    if (state.kind !== "ready") return [];
-    const parts: Record<DayPart, TimeSlot[]> = { morning: [], afternoon: [], evening: [] };
-    for (const s of state.data.slots) parts[dayPartOf(s.localMinute)].push(s);
-    return (Object.keys(parts) as DayPart[]).filter((p) => parts[p].length > 0).map((p) => ({ part: p, slots: parts[p] }));
-  }, [state]);
 
   return (
     <div className="space-y-6">
@@ -181,7 +174,7 @@ export function ScheduleStep({
           </div>
         )}
 
-        {state.kind === "ready" && grouped.length === 0 && (
+        {state.kind === "ready" && state.data.slots.length === 0 && (
           <div className="flex flex-col items-center rounded-2xl border border-dashed border-zinc-800 p-8 text-center">
             <CalendarX2 className="size-8 text-zinc-600" />
             <p className="mt-3 font-semibold text-zinc-300">{date === today ? "No more times today" : "Fully booked"}</p>
@@ -192,39 +185,14 @@ export function ScheduleStep({
           </div>
         )}
 
-        {state.kind === "ready" && (
-          <AnimatePresence initial={false}>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
-              {grouped.map((g) => (
-                <div key={g.part}>
-                  <p className="mb-2 text-xs font-medium text-zinc-500">{PART_LABEL[g.part]}</p>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5" role="listbox" aria-label={`${PART_LABEL[g.part]} times`}>
-                    {g.slots.map((s) => {
-                      const selected = slot?.startsAt === s.startsAt;
-                      return (
-                        <motion.button
-                          key={s.startsAt}
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => setSlot(s)}
-                          className={cn(
-                            "h-12 rounded-xl border font-mono text-sm font-semibold tabular transition-all",
-                            selected
-                              ? "border-amber-500 bg-amber-500 text-zinc-950"
-                              : "border-zinc-800/80 bg-zinc-900/50 text-zinc-200 hover:border-amber-500/40",
-                          )}
-                        >
-                          {formatClock(s.startsAt, settings.timezone)}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </motion.div>
-          </AnimatePresence>
+        {state.kind === "ready" && state.data.slots.length > 0 && (
+          <TimeSlotPicker
+            slots={state.data.slots}
+            selected={slot}
+            onSelect={setSlot}
+            timezone={settings.timezone}
+            slotIntervalMin={settings.slotIntervalMin}
+          />
         )}
 
         {slot && (

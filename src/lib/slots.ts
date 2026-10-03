@@ -89,3 +89,52 @@ export function dayPartOf(localMinute: number): DayPart {
   if (localMinute < 17 * 60) return "afternoon";
   return "evening";
 }
+
+export const DAY_PARTS: readonly DayPart[] = ["morning", "afternoon", "evening"];
+
+export interface TimeGridCell {
+  /** minute within the hour (0, 15, 30, 45 for a 15-min interval) */
+  minute: number;
+  slot: TimeSlot | null;
+}
+
+export interface TimeGridRow {
+  /** 0-23, shop-local */
+  hour: number;
+  cells: TimeGridCell[];
+}
+
+export interface TimeGridPart {
+  part: DayPart;
+  available: number;
+  rows: TimeGridRow[];
+}
+
+/**
+ * Compact picker layout: one row per hour, one column per interval step.
+ * Hours between the first and last open slot of a day part are kept even when
+ * fully booked, so the grid stays aligned and "taken" times read as gaps.
+ */
+export function buildTimeGrid(slots: readonly TimeSlot[], slotIntervalMin: number): TimeGridPart[] {
+  const step = slotIntervalMin > 0 && 60 % slotIntervalMin === 0 ? slotIntervalMin : 15;
+  const minutes = Array.from({ length: 60 / step }, (_, i) => i * step);
+  const byMinute = new Map(slots.map((s) => [s.localMinute, s]));
+
+  return DAY_PARTS.map((part) => {
+    const inPart = slots.filter((s) => dayPartOf(s.localMinute) === part);
+    if (inPart.length === 0) return { part, available: 0, rows: [] };
+    const first = Math.floor(Math.min(...inPart.map((s) => s.localMinute)) / 60);
+    const last = Math.floor(Math.max(...inPart.map((s) => s.localMinute)) / 60);
+    const rows: TimeGridRow[] = [];
+    for (let hour = first; hour <= last; hour++) {
+      rows.push({
+        hour,
+        cells: minutes.map((minute) => {
+          const slot = byMinute.get(hour * 60 + minute) ?? null;
+          return { minute, slot: slot && dayPartOf(slot.localMinute) === part ? slot : null };
+        }),
+      });
+    }
+    return { part, available: inPart.length, rows };
+  });
+}

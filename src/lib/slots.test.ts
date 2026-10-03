@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSlots, isWorkingDay } from "./slots";
+import { buildTimeGrid, generateSlots, isWorkingDay } from "./slots";
 import type { Shift } from "./types/domain";
 
 const KL = "Asia/Kuala_Lumpur";
@@ -54,5 +54,29 @@ describe("generateSlots", () => {
     expect(generateSlots({ ...base, date: "2026-10-05", durationMin: 30, barberIds: ["a"], busy: [] })).toEqual([]);
     expect(isWorkingDay("2026-10-05", ["a"], shifts)).toBe(false);
     expect(isWorkingDay("2026-10-06", ["a"], shifts)).toBe(true);
+  });
+});
+
+describe("buildTimeGrid", () => {
+  const slot = (localMinute: number) => ({ startsAt: `t${localMinute}`, localMinute, availableBarberIds: ["a"] });
+
+  it("groups slots into day parts with one row per hour", () => {
+    // 10:00, 10:30, 11:45 | 14:15 | 17:00, 19:45
+    const grid = buildTimeGrid([600, 630, 705, 855, 1020, 1185].map(slot), 15);
+    const [morning, afternoon, evening] = grid;
+    expect(morning?.available).toBe(3);
+    expect(morning?.rows.map((r) => r.hour)).toEqual([10, 11]);
+    expect(morning?.rows[0]?.cells.map((c) => c.minute)).toEqual([0, 15, 30, 45]);
+    expect(morning?.rows[0]?.cells.map((c) => c.slot !== null)).toEqual([true, false, true, false]);
+    expect(afternoon?.rows.map((r) => r.hour)).toEqual([14]);
+    // keeps the empty hours in between so taken times show as gaps
+    expect(evening?.rows.map((r) => r.hour)).toEqual([17, 18, 19]);
+    expect(evening?.rows[1]?.cells.every((c) => c.slot === null)).toBe(true);
+  });
+
+  it("returns empty parts when nothing is open and adapts to the interval", () => {
+    const grid = buildTimeGrid([slot(780), slot(810)], 30);
+    expect(grid[0]).toEqual({ part: "morning", available: 0, rows: [] });
+    expect(grid[1]?.rows[0]?.cells.map((c) => c.minute)).toEqual([0, 30]);
   });
 });
