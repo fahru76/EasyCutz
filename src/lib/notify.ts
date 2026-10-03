@@ -33,3 +33,34 @@ export function calledNowMessage(args: { shopName: string; customerName: string;
   const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
   return `Hi ${first}, ${args.barberName} at ${args.shopName} is ready for you now (${args.label}). See you at the chair!`;
 }
+
+/** EZ-011: the barber is running behind for a booked customer. */
+export function delayMessage(args: {
+  shopName: string;
+  customerName: string;
+  barberName: string;
+  delayMin: number;
+  expectedTime: string;
+  passUrl: string;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  return (
+    `Hi ${first}, it's ${args.shopName}. ${args.barberName} is running about ${args.delayMin} min late today — ` +
+    `your new expected start is ${args.expectedTime}. Sorry for the wait! Live pass: ${args.passUrl}`
+  );
+}
+
+/** EZ-011: the barber is free early; invite the booked customer to come in now (their booking stays as is). */
+export function freeEarlyMessage(args: {
+  shopName: string;
+  customerName: string;
+  barberName: string;
+  bookedTime: string;
+  passUrl: string;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  return (
+    `Hi ${first}, it's ${args.shopName}. ${args.barberName} is free early — if you can come in now, ` +
+    `we'll seat you straight away. If not, no worries: your ${args.bookedTime} booking stays as is. Live pass: ${args.passUrl}`
+  );
+}

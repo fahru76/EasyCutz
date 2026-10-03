@@ -1,23 +1,35 @@
 /**
- * Live queue estimator.
+ * Live queue + chair timeline estimator (EZ-011).
  *
- * Simulates every on-duty chair forward from "now":
- *   1. whoever is in the chair finishes (seated_at + duration, min 3 min left),
- *   2. customers already called for that chair go next,
- *   3. scheduled appointments are hard blocks the queue flows around,
- *   4. waiting tickets are placed in ticket order on their preferred barber,
- *      or on whichever eligible chair frees up first ("first available").
+ * Every on-duty chair is projected forward from "now", per barber:
+ *   1. the customer in the chair finishes at their expected end
+ *      (desk-adjustable `expected_end_at`, else seated_at + duration). When that
+ *      time has passed the service is "running over" and we assume
+ *      max(5 min, 25% of the service) is still left;
+ *   2. customers already called for that chair go next;
+ *   3. booked appointments follow in order. Each projected start is
+ *      max(booked start, when the chair is actually free), so an overrun
+ *      cascades through that barber's bookings, and only that barber's;
+ *   4. waiting walk-ins fill the gaps between projected appointments, on their
+ *      preferred barber or on whichever eligible chair frees first.
  *
- * Pure and deterministic, so the customer pass, the header pill and the desk
- * all show the same numbers from the same realtime rows.
+ * Pure and deterministic: the customer pass, the home page and the desk all
+ * derive the same numbers from the same realtime rows.
  */
 import { addMinutes, minutesBetween } from "./time";
 import type { Barber, LiveAppointment, LiveBooking, LiveTicket } from "./types/domain";
 
-export const MIN_REMAINING_MIN = 3;
-/** A confirmed appointment that is this late is assumed not to be blocking the chair. */
+/** Floor for "time left" on a service that is still within its expected end. */
+export const MIN_REMAINING_MIN = 1;
+/** When a service runs over: assume at least this much is still left… */
+export const OVERRUN_MIN_REMAINING_MIN = 5;
+/** …or this fraction of the planned duration, whichever is larger. */
+export const OVERRUN_FRACTION = 0.25;
+/** A booked customer who hasn't checked in this late, while the chair is free, is treated as a likely no-show. */
 export const LATE_GRACE_MIN = 15;
 export const DEFAULT_WALK_IN_MIN = 30;
+
+const MIN = 60_000;
 
 export interface QueueInput {
   now: Date;
@@ -28,15 +40,34 @@ export interface QueueInput {
 
 export type BarberLiveState = "available" | "in_chair" | "busy" | "off_duty";
 
+export interface AppointmentEta {
+  appointmentId: string;
+  barberId: string;
+  bookedStart: Date;
+  projectedStart: Date;
+  /** Minutes the barber's chair is running behind for this booking (0 = on time). */
+  delayMin: number;
+}
+
 export interface BarberLive {
   barberId: string;
   state: BarberLiveState;
-  /** Minutes left on the current customer, when in chair. */
+  /** Minutes left on the current customer per the plan (0 once running over). */
   minutesLeft: number | null;
+  /** Minutes the current service is past its expected end (0 when on time). */
+  runningOverMin: number;
+  /** Planned/adjusted end of the current service. */
+  expectedEndAt: Date | null;
   current: LiveBooking | null;
   called: LiveBooking | null;
   /** Wait for a brand-new standard walk-in that asks for this barber. */
   nextFreeMin: number | null;
+  /** This barber's next booked appointment (projected). */
+  nextAppointment: AppointmentEta | null;
+  /** Idle chair: free minutes before the next booking (null when busy or nothing booked). */
+  freeGapMin: number | null;
+  /** True when a waiting walk-in for this chair fits inside `freeGapMin`. */
+  gapFillable: boolean;
 }
 
 export interface TicketEta {
@@ -63,15 +94,51 @@ export interface QueueSnapshot {
   waiting: LiveTicket[];
   barbers: Map<string, BarberLive>;
   etas: Map<string, TicketEta>;
+  appointmentEtas: Map<string, AppointmentEta>;
   /** Estimate for a standard walk-in with "first available", or null when nobody is on duty. */
   nextWalkIn: WalkInEstimate | null;
 }
 
+// ---------------------------------------------------------------------------
+// In-chair service timing
+// ---------------------------------------------------------------------------
+export interface ServiceFinish {
+  /** End per plan (expected_end_at, else seated_at + duration). */
+  plannedEnd: number;
+  /** Best estimate of the real end (later than plannedEnd when running over). */
+  estimatedEnd: number;
+  runningOverMin: number;
+}
+
+export function estimateFinish(booking: LiveBooking, nowMs: number): ServiceFinish {
+  const seated = booking.seatedAt ? new Date(booking.seatedAt).getTime() : nowMs;
+  const plannedEnd = booking.expectedEndAt
+    ? new Date(booking.expectedEndAt).getTime()
+    : seated + booking.durationMin * MIN;
+
+  if (plannedEnd > nowMs) {
+    return { plannedEnd, estimatedEnd: Math.max(plannedEnd, nowMs + MIN_REMAINING_MIN * MIN), runningOverMin: 0 };
+  }
+  const guessMin = Math.max(OVERRUN_MIN_REMAINING_MIN, Math.round(booking.durationMin * OVERRUN_FRACTION));
+  return {
+    plannedEnd,
+    estimatedEnd: nowMs + guessMin * MIN,
+    runningOverMin: Math.floor((nowMs - plannedEnd) / MIN),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Chair timelines
+// ---------------------------------------------------------------------------
 interface Chair {
   barberId: string;
   sortOrder: number;
+  /** When the chair is free after in-chair + called customers. */
   freeAt: number;
+  /** Projected appointment intervals walk-ins must flow around. */
   blocks: Array<{ start: number; end: number }>;
+  appointments: AppointmentEta[];
+  busyNow: boolean;
 }
 
 function isPendingHoldAlive(a: LiveAppointment, nowMs: number): boolean {
@@ -84,25 +151,19 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
 
   for (const b of input.barbers) {
     if (!b.isOnDuty) continue;
-    chairs.set(b.id, { barberId: b.id, sortOrder: b.sortOrder, freeAt: nowMs, blocks: [] });
+    chairs.set(b.id, { barberId: b.id, sortOrder: b.sortOrder, freeAt: nowMs, blocks: [], appointments: [], busyNow: false });
   }
-
-  const remainingMs = (seatedAt: string | null, durationMin: number) => {
-    const seated = seatedAt ? new Date(seatedAt).getTime() : nowMs;
-    const end = seated + durationMin * 60000;
-    return Math.max(MIN_REMAINING_MIN * 60000, end - nowMs);
-  };
 
   // 1. in chair
-  for (const t of input.tickets) {
-    if (t.status !== "in_chair" || !t.barberId) continue;
-    const chair = chairs.get(t.barberId);
-    if (chair) chair.freeAt = Math.max(chair.freeAt, nowMs + remainingMs(t.seatedAt, t.durationMin));
-  }
-  for (const a of input.appointments) {
-    if (a.status !== "in_chair") continue;
-    const chair = chairs.get(a.barberId);
-    if (chair) chair.freeAt = Math.max(chair.freeAt, nowMs + remainingMs(a.seatedAt, a.durationMin));
+  const inChair: LiveBooking[] = [
+    ...input.tickets.filter((t) => t.status === "in_chair" && t.barberId),
+    ...input.appointments.filter((a) => a.status === "in_chair"),
+  ];
+  for (const b of inChair) {
+    const chair = b.barberId ? chairs.get(b.barberId) : undefined;
+    if (!chair) continue;
+    chair.busyNow = true;
+    chair.freeAt = Math.max(chair.freeAt, estimateFinish(b, nowMs).estimatedEnd);
   }
 
   // 2. already called for a chair
@@ -112,30 +173,49 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
   ];
   for (const c of called) {
     const chair = c.barberId ? chairs.get(c.barberId) : undefined;
-    if (chair) chair.freeAt += c.durationMin * 60000;
+    if (!chair) continue;
+    chair.busyNow = true;
+    chair.freeAt += c.durationMin * MIN;
   }
 
-  // 3. scheduled appointments become blocks
-  for (const a of input.appointments) {
-    if (!(a.status === "confirmed" || a.status === "checked_in" || a.status === "pending_payment")) continue;
-    if (!isPendingHoldAlive(a, nowMs)) continue;
-    const chair = chairs.get(a.barberId);
-    if (!chair) continue;
-    const start = new Date(a.startsAt).getTime();
-    if (start < nowMs - LATE_GRACE_MIN * 60000) continue; // very late: likely a no-show, don't hold the chair
-    // A slightly late customer still gets their full service once they arrive.
-    const blockStart = Math.max(start, nowMs);
-    const blockEnd = start < nowMs ? nowMs + a.durationMin * 60000 : new Date(a.endsAt).getTime();
-    chair.blocks.push({ start: blockStart, end: blockEnd });
+  // 3. booked appointments, projected in order per barber (delays cascade)
+  const upcoming = input.appointments
+    .filter((a) => a.status === "confirmed" || a.status === "checked_in" || a.status === "pending_payment")
+    .filter((a) => isPendingHoldAlive(a, nowMs))
+    .sort((x, y) => x.startsAt.localeCompare(y.startsAt));
+
+  for (const chair of chairs.values()) {
+    let cursor = chair.freeAt;
+    for (const a of upcoming) {
+      if (a.barberId !== chair.barberId) continue;
+      const booked = new Date(a.startsAt).getTime();
+      // Bug fix (EZ-011): only drop a late booking when the customer hasn't checked in AND
+      // the chair isn't the reason they're waiting. A checked-in customer is never dropped.
+      const likelyNoShow = !a.checkedInAt && !chair.busyNow && booked < nowMs - LATE_GRACE_MIN * MIN;
+      if (likelyNoShow) continue;
+
+      const chairReadyAt = Math.max(booked, cursor);
+      const projectedStart = Math.max(chairReadyAt, nowMs);
+      const projectedEnd = projectedStart + a.durationMin * MIN;
+      const delayMin = Math.max(0, Math.round((chairReadyAt - booked) / MIN));
+      chair.appointments.push({
+        appointmentId: a.id,
+        barberId: chair.barberId,
+        bookedStart: new Date(booked),
+        projectedStart: new Date(projectedStart),
+        delayMin,
+      });
+      chair.blocks.push({ start: projectedStart, end: projectedEnd });
+      cursor = projectedEnd;
+    }
   }
-  for (const chair of chairs.values()) chair.blocks.sort((x, y) => x.start - y.start);
 
   return chairs;
 }
 
 /** Earliest start >= chair.freeAt where `durationMin` fits between blocks. */
 function place(chair: Chair, durationMin: number): number {
-  const dur = durationMin * 60000;
+  const dur = durationMin * MIN;
   let t = chair.freeAt;
   let moved = true;
   while (moved) {
@@ -185,6 +265,14 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
   const line = waitingLine(input.tickets);
   const etas = new Map<string, TicketEta>();
 
+  // Snapshot of the timeline before walk-ins are placed (used for gaps / appointment ETAs).
+  const appointmentEtas = new Map<string, AppointmentEta>();
+  const freeAtBeforeWalkIns = new Map<string, number>();
+  for (const chair of chairs.values()) {
+    freeAtBeforeWalkIns.set(chair.barberId, chair.freeAt);
+    for (const eta of chair.appointments) appointmentEtas.set(eta.appointmentId, eta);
+  }
+
   line.forEach((ticket, index) => {
     const pick = pickChair(candidateChairs(chairs, ticket.preferredBarberId), ticket.durationMin);
     const aheadCount = line
@@ -194,7 +282,7 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
       etas.set(ticket.id, { ticketId: ticket.id, position: index + 1, aheadCount, barberId: null, startsAt: null, waitMin: null });
       return;
     }
-    pick.chair.freeAt = pick.start + ticket.durationMin * 60000;
+    pick.chair.freeAt = pick.start + ticket.durationMin * MIN;
     etas.set(ticket.id, {
       ticketId: ticket.id,
       position: index + 1,
@@ -218,7 +306,7 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
     }
   }
 
-  return { etas, onDuty, line, extraEstimate };
+  return { chairs, etas, onDuty, line, extraEstimate, appointmentEtas, freeAtBeforeWalkIns };
 }
 
 /** Estimate for a hypothetical new walk-in (used before issuing a ticket). */
@@ -231,7 +319,7 @@ export function estimateWalkIn(
 }
 
 export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
-  const { etas, onDuty, line, extraEstimate } = simulate(input, {
+  const { chairs, etas, onDuty, line, extraEstimate, appointmentEtas, freeAtBeforeWalkIns } = simulate(input, {
     durationMin: DEFAULT_WALK_IN_MIN,
     preferredBarberId: null,
   });
@@ -249,9 +337,30 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
       null;
 
     let minutesLeft: number | null = null;
+    let runningOverMin = 0;
+    let expectedEndAt: Date | null = null;
     if (current) {
-      const seated = current.seatedAt ? new Date(current.seatedAt).getTime() : nowMs;
-      minutesLeft = Math.max(0, Math.ceil((seated + current.durationMin * 60000 - nowMs) / 60000));
+      const finish = estimateFinish(current, nowMs);
+      minutesLeft = Math.max(0, Math.ceil((finish.plannedEnd - nowMs) / MIN));
+      runningOverMin = finish.runningOverMin;
+      expectedEndAt = new Date(finish.plannedEnd);
+    }
+
+    const chair = chairs.get(b.id);
+    const nextAppointment = chair?.appointments[0] ?? null;
+
+    // Free-early gap: idle chair with time to spare before the next booking.
+    let freeGapMin: number | null = null;
+    let gapFillable = false;
+    if (chair && !current && !called && nextAppointment) {
+      const freeFrom = Math.max(nowMs, freeAtBeforeWalkIns.get(b.id) ?? nowMs);
+      const gap = Math.floor((nextAppointment.projectedStart.getTime() - freeFrom) / MIN);
+      if (gap > 0) {
+        freeGapMin = gap;
+        gapFillable = line.some(
+          (t) => competes(t.preferredBarberId, b.id, onDuty) && t.durationMin <= gap,
+        );
+      }
     }
 
     const nextFree = onDuty.has(b.id) ? estimateWalkIn(input, DEFAULT_WALK_IN_MIN, b.id) : null;
@@ -265,9 +374,14 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
       barberId: b.id,
       state,
       minutesLeft,
+      runningOverMin,
+      expectedEndAt,
       current,
       called,
       nextFreeMin: nextFree ? nextFree.waitMin : null,
+      nextAppointment,
+      freeGapMin,
+      gapFillable,
     });
   }
 
@@ -277,6 +391,7 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
     waiting: line,
     barbers,
     etas,
+    appointmentEtas,
     nextWalkIn: extraEstimate,
   };
 }
@@ -288,7 +403,7 @@ export function barberStatusLabel(live: BarberLive | undefined): string {
     case "available":
       return "Available Now";
     case "in_chair":
-      return `In Chair · ${live.minutesLeft ?? 0}m left`;
+      return live.runningOverMin > 0 ? "In Chair · running late" : `In Chair · ${live.minutesLeft ?? 0}m left`;
     case "busy":
       return live.nextFreeMin !== null ? `Free in ~${live.nextFreeMin}m` : "Busy";
     case "off_duty":

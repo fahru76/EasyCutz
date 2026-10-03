@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CircleCheck,
   LogOut,
+  Hourglass,
   Megaphone,
   MessageCircle,
   MessageSquare,
@@ -14,14 +15,15 @@ import {
   UserCheck,
   UserX,
   Users,
+  Zap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { cn, formatMoney, formatWait } from "@/lib/format";
-import { calledNowMessage, smsLink, turnSoonMessage, whatsappLink } from "@/lib/notify";
-import { buildQueueSnapshot, type QueueSnapshot } from "@/lib/queue";
+import { calledNowMessage, delayMessage, freeEarlyMessage, smsLink, turnSoonMessage, whatsappLink } from "@/lib/notify";
+import { buildQueueSnapshot, type AppointmentEta, type QueueSnapshot } from "@/lib/queue";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { formatClock } from "@/lib/time";
 import {
@@ -124,8 +126,26 @@ export function DeskBoard({
       if (!res.error && res.data === null) {
         setToast({ tone: "ok", text: `Nobody waiting for ${barber.displayName}.` });
       }
+      const noFit = !res.error ? parseNoFit(res.data) : null;
+      if (noFit) {
+        const when = noFit.nextStartsAt ? ` (${formatClock(noFit.nextStartsAt, settings.timezone)})` : "";
+        setToast({
+          tone: "error",
+          text: `Next walk-in needs ${noFit.neededMin} min, only ${noFit.gapMin ?? 0} min free before ${noFit.nextLabel ?? "the next booking"}${when}. Seat the booked customer early or wait.`,
+        });
+      }
       return res;
     });
+  const setExpectedEnd = (booking: LiveBooking, mode: "extend" | "finish_in", minutes: number) =>
+    run(
+      `eta:${booking.id}`,
+      async () => db.rpc("desk_set_expected_end", { p_kind: booking.kind, p_id: booking.id, p_mode: mode, p_minutes: minutes }),
+      mode === "extend" ? `+${minutes} min added — ETAs updated` : `Done in ~${minutes} min — ETAs updated`,
+    );
+  const markDelayNotified = (appointmentId: string, delayMin: number) =>
+    run(`delay:${appointmentId}`, async () =>
+      db.rpc("desk_mark_delay_notified", { p_appointment_id: appointmentId, p_delay_min: delayMin }),
+    );
   const transition = (kind: BookingKind, id: string, action: Action, barberId?: string) =>
     run(`${action}:${id}`, async () =>
       db.rpc("desk_transition", { p_kind: kind, p_id: id, p_action: action, p_barber_id: barberId ?? null }),
@@ -152,6 +172,12 @@ export function DeskBoard({
     live.tickets.filter((t) => t.status === "completed").length +
     live.appointments.filter((a) => a.status === "completed").length;
   const inChairCount = [...snapshot.barbers.values()].filter((b) => b.current).length;
+  const appointmentsById = new Map(live.appointments.map((a) => [a.id, a]));
+  const delayed = upcoming
+    .map((a) => ({ appt: a, eta: snapshot.appointmentEtas.get(a.id) }))
+    .filter((d): d is { appt: LiveAppointment; eta: AppointmentEta } =>
+      Boolean(d.eta && d.eta.delayMin >= settings.delayNotifyMin && d.appt.status !== "pending_payment"),
+    );
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -204,13 +230,39 @@ export function DeskBoard({
               contacts={contacts}
               settings={settings}
               now={now}
+              origin={origin}
+              appointmentsById={appointmentsById}
               pending={pending}
               onCallNext={() => void callNext(barber)}
               onTransition={(kind, id, action) => void transition(kind, id, action, barber.id)}
+              onAdjust={(booking, mode, minutes) => void setExpectedEnd(booking, mode, minutes)}
               onDuty={(on) => void setDuty(barber, on)}
             />
           ))}
         </section>
+
+        {delayed.length > 0 && (
+          <section aria-label="Delayed bookings">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-amber-400">
+              <Hourglass className="size-4" /> Delayed bookings
+            </h2>
+            <Card className="divide-y divide-zinc-800/70 border-amber-500/30">
+              {delayed.map(({ appt, eta }) => (
+                <DelayedRow
+                  key={appt.id}
+                  appt={appt}
+                  eta={eta}
+                  contact={contacts.get(appt.id)}
+                  barber={barberById.get(appt.barberId)}
+                  settings={settings}
+                  origin={origin}
+                  pending={pending}
+                  onNotified={() => void markDelayNotified(appt.id, eta.delayMin)}
+                />
+              ))}
+            </Card>
+          </section>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Walk-in queue */}
@@ -255,6 +307,7 @@ export function DeskBoard({
                   appt={a}
                   contact={contacts.get(a.id)}
                   barber={barberById.get(a.barberId)}
+                  eta={snapshot.appointmentEtas.get(a.id)}
                   settings={settings}
                   now={now}
                   pending={pending}
@@ -336,9 +389,12 @@ function ChairCard({
   contacts,
   settings,
   now,
+  origin,
+  appointmentsById,
   pending,
   onCallNext,
   onTransition,
+  onAdjust,
   onDuty,
 }: {
   barber: Barber;
@@ -346,14 +402,23 @@ function ChairCard({
   contacts: Map<string, BookingContact>;
   settings: ShopSettings;
   now: Date;
+  origin: string;
+  appointmentsById: Map<string, LiveAppointment>;
   pending: string | null;
   onCallNext: () => void;
   onTransition: (kind: BookingKind, id: string, action: Action) => void;
+  onAdjust: (booking: LiveBooking, mode: "extend" | "finish_in", minutes: number) => void;
   onDuty: (on: boolean) => void;
 }) {
   const live = snapshot.barbers.get(barber.id);
   const current = live?.current ?? null;
   const called = live?.called ?? null;
+  const over = live?.runningOverMin ?? 0;
+  const nextEta = live?.nextAppointment ?? null;
+  const nextAppt = nextEta ? appointmentsById.get(nextEta.appointmentId) : undefined;
+  const nextContact = nextAppt ? contacts.get(nextAppt.id) : undefined;
+  const nextName = (nextContact?.customerName ?? nextAppt?.displayName ?? "").split(/\s+/)[0] ?? "";
+  const freeGap = live?.freeGapMin ?? null;
   const progress = current
     ? Math.min(1, Math.max(0, (now.getTime() - new Date(current.seatedAt ?? now.toISOString()).getTime()) / (current.durationMin * 60000)))
     : 0;
@@ -376,13 +441,26 @@ function ChairCard({
               <Badge tone="emerald" pulse>
                 <Armchair className="size-3" /> In chair
               </Badge>
-              <span className="font-mono text-xs text-zinc-400">{live?.minutesLeft ?? 0}m left</span>
+              {over > 0 ? (
+                <span className={cn("font-mono text-xs font-semibold", over > 15 ? "text-rose-300" : "text-amber-300")}>
+                  +{over}m over
+                </span>
+              ) : (
+                <span className="font-mono text-xs text-zinc-400">
+                  {live?.minutesLeft ?? 0}m left
+                  {live?.expectedEndAt && <> · {formatClock(live.expectedEndAt, settings.timezone)}</>}
+                </span>
+              )}
             </div>
             <p className="mt-2 font-mono text-lg font-bold">{bookingLabel(current, contacts.get(current.id)).code}</p>
             <p className="truncate text-sm text-zinc-300">{bookingLabel(current, contacts.get(current.id)).name}</p>
             <p className="truncate text-xs text-zinc-500">{current.serviceSummary}</p>
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-800">
-              <motion.div className="h-full bg-emerald-400" initial={{ width: 0 }} animate={{ width: `${Math.round(progress * 100)}%` }} />
+              <motion.div
+                className={cn("h-full", over > 15 ? "bg-rose-400" : over > 0 ? "bg-amber-400" : "bg-emerald-400")}
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.round(progress * 100)}%` }}
+              />
             </div>
           </>
         ) : called ? (
@@ -395,8 +473,14 @@ function ChairCard({
             <p className="truncate text-xs text-zinc-500">{called.serviceSummary}</p>
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
             <p className="text-sm text-zinc-500">{barber.isOnDuty ? "Chair free" : "Off duty"}</p>
+            {barber.isOnDuty && freeGap !== null && nextEta && (
+              <p className="text-xs text-emerald-300">
+                <Zap className="mr-1 inline size-3" />
+                Free early · {freeGap}m until {nextName || "next booking"} ({formatClock(nextEta.bookedStart, settings.timezone)})
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -410,6 +494,62 @@ function ChairCard({
           >
             <CircleCheck className="size-4" /> Mark Complete
           </Button>
+        )}
+        {current && (
+          <div className="grid grid-cols-4 gap-1.5" aria-label="Adjust expected finish">
+            {[5, 10, 15].map((m) => (
+              <Button
+                key={m}
+                variant="secondary"
+                size="sm"
+                className="px-0 font-mono"
+                loading={pending === `eta:${current.id}`}
+                onClick={() => onAdjust(current, "extend", m)}
+                title={`Running over: add ${m} minutes`}
+              >
+                +{m}
+              </Button>
+            ))}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="px-0 text-xs"
+              loading={pending === `eta:${current.id}`}
+              onClick={() => onAdjust(current, "finish_in", 5)}
+              title="Finishing early: done in about 5 minutes"
+            >
+              Done ~5
+            </Button>
+          </div>
+        )}
+        {!current && !called && barber.isOnDuty && freeGap !== null && nextAppt && !live?.gapFillable && (
+          nextAppt.status === "checked_in" ? (
+            <Button
+              variant="success"
+              loading={pending === `seat:${nextAppt.id}`}
+              onClick={() => onTransition("appointment", nextAppt.id, "seat")}
+            >
+              <UserCheck className="size-4" /> Seat {nextName} now
+            </Button>
+          ) : nextContact && freeGap >= settings.earlyOfferMin ? (
+            <a
+              href={whatsappLink(
+                nextContact.phone,
+                freeEarlyMessage({
+                  shopName: settings.shopName,
+                  customerName: nextContact.customerName,
+                  barberName: barber.displayName,
+                  bookedTime: formatClock(nextAppt.startsAt, settings.timezone),
+                  passUrl: `${origin}/pass/${nextContact.accessToken}`,
+                }),
+              )}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20"
+            >
+              <MessageCircle className="size-4" /> Invite {nextName} early
+            </a>
+          ) : null
         )}
         {called && (
           <>
@@ -603,6 +743,7 @@ function AppointmentRow({
   appt,
   contact,
   barber,
+  eta,
   settings,
   now,
   pending,
@@ -613,6 +754,7 @@ function AppointmentRow({
   appt: LiveAppointment;
   contact: BookingContact | undefined;
   barber: Barber | undefined;
+  eta: AppointmentEta | undefined;
   settings: ShopSettings;
   now: Date;
   pending: string | null;
@@ -635,6 +777,11 @@ function AppointmentRow({
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {appt.status === "pending_payment" && <Badge tone="amber">Awaiting payment</Badge>}
             {appt.status === "checked_in" && <Badge tone="emerald">Arrived</Badge>}
+            {eta && eta.delayMin >= 5 && (
+              <Badge tone={eta.delayMin > 15 ? "rose" : "amber"} mono>
+                +{eta.delayMin}m → {formatClock(eta.projectedStart, settings.timezone)}
+              </Badge>
+            )}
             {late && appt.status !== "checked_in" && <Badge tone="rose">{-minutesTo}m late</Badge>}
             {!late && minutesTo >= 0 && <Badge mono>in {minutesTo}m</Badge>}
             {appt.paymentStatus === "paid" && (
@@ -666,6 +813,110 @@ function AppointmentRow({
               <MessageCircle className="size-4" /> WhatsApp
             </a>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------------------
+interface NoFit {
+  gapMin: number | null;
+  neededMin: number;
+  nextLabel: string | null;
+  nextStartsAt: string | null;
+}
+
+/** desk_call_next returns { kind: null, reason: "no_fit", ... } when no waiting walk-in fits the gap. */
+function parseNoFit(data: unknown): NoFit | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if (d.reason !== "no_fit") return null;
+  return {
+    gapMin: typeof d.gap_min === "number" ? d.gap_min : null,
+    neededMin: typeof d.needed_min === "number" ? d.needed_min : 0,
+    nextLabel: typeof d.next_label === "string" ? d.next_label : null,
+    nextStartsAt: typeof d.next_starts_at === "string" ? d.next_starts_at : null,
+  };
+}
+
+/** Re-prompt only when the delay grew by this much since the last notice. */
+const DELAY_RENOTIFY_STEP_MIN = 10;
+
+function DelayedRow({
+  appt,
+  eta,
+  contact,
+  barber,
+  settings,
+  origin,
+  pending,
+  onNotified,
+}: {
+  appt: LiveAppointment;
+  eta: AppointmentEta;
+  contact: BookingContact | undefined;
+  barber: Barber | undefined;
+  settings: ShopSettings;
+  origin: string;
+  pending: string | null;
+  onNotified: () => void;
+}) {
+  const needsNotice =
+    appt.delayNotifiedMin === null || eta.delayMin - appt.delayNotifiedMin >= DELAY_RENOTIFY_STEP_MIN;
+  const expected = formatClock(eta.projectedStart, settings.timezone);
+  const message = contact
+    ? delayMessage({
+        shopName: settings.shopName,
+        customerName: contact.customerName,
+        barberName: barber?.displayName ?? "Your barber",
+        delayMin: eta.delayMin,
+        expectedTime: expected,
+        passUrl: `${origin}/pass/${contact.accessToken}`,
+      })
+    : "";
+  return (
+    <div className="flex flex-wrap items-center gap-3 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium">
+          {contact?.customerName ?? appt.displayName}
+          <span className="text-zinc-500"> · {barber?.displayName ?? "—"}</span>
+        </p>
+        <p className="font-mono text-xs text-zinc-400">
+          booked {formatClock(eta.bookedStart, settings.timezone)} → now ~{expected}{" "}
+          <span className={eta.delayMin > 15 ? "text-rose-300" : "text-amber-300"}>(+{eta.delayMin}m)</span>
+        </p>
+        {!needsNotice && appt.delayNotifiedAt && (
+          <p className="text-[11px] text-zinc-500">
+            Told +{appt.delayNotifiedMin}m at {formatClock(appt.delayNotifiedAt, settings.timezone)}
+          </p>
+        )}
+      </div>
+      {contact && (
+        <div className="flex gap-2">
+          <a
+            href={whatsappLink(contact.phone, message)}
+            target="_blank"
+            rel="noreferrer"
+            onClick={onNotified}
+            aria-disabled={pending === `delay:${appt.id}`}
+            className={cn(
+              "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold",
+              needsNotice
+                ? "bg-amber-500 text-zinc-950 hover:bg-amber-400"
+                : "border border-zinc-800 text-zinc-300 hover:border-zinc-700",
+            )}
+          >
+            <MessageCircle className="size-4" /> {needsNotice ? "Notify delay" : "Notify again"}
+          </a>
+          <a
+            href={smsLink(contact.phone, message)}
+            onClick={onNotified}
+            className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+            aria-label="Send delay SMS"
+          >
+            <MessageSquare className="size-4" />
+          </a>
         </div>
       )}
     </div>

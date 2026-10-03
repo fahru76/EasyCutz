@@ -226,4 +226,70 @@ select pg_temp.expect_error(
   $$select cancel_booking((select access_token from booking_private bp join queue_tickets t on t.id = bp.ticket_id where t.status = 'completed' limit 1))$$,
   'invalid_transition');
 
+\echo '--- EZ-011 service timing'
+-- Chandra: next booked appointment in ~25 min; a 45-min and a 20-min walk-in wait for her.
+insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status)
+select b.id, now() + interval '25 minutes', now() + interval '70 minutes', 45, 5000,
+       array[(select id from services where slug = 'skin-fade')], 'Skin Fade', 'Gap T.', 'confirmed'
+  from barbers b where b.slug = 'chandra';
+select issue_queue_ticket((select id from barbers where slug='chandra'), array[(select id from services where slug='signature-cut')], '{}', 'Long Cut', '+60111000001', null, 'cash_on_site');
+select issue_queue_ticket((select id from barbers where slug='chandra'), array[(select id from services where slug='buzz-cut')], '{}', 'Short Cut', '+60111000002', null, 'cash_on_site');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb; v_chandra uuid; v_id uuid; v_end timestamptz; v_end2 timestamptz;
+begin
+  select id into v_chandra from barbers where slug = 'chandra';
+
+  -- gap-aware: the 20-min buzz cut fits before the appointment, the older 45-min cut does not
+  v := desk_call_next(v_chandra);
+  assert v->>'kind' = 'ticket', v::text;
+  v_id := (v->>'id')::uuid;
+  assert (select duration_min from queue_tickets where id = v_id) = 20, 'called the cut that fits';
+
+  -- seating sets expected_end_at = seated_at + duration
+  perform desk_transition('ticket', v_id, 'seat');
+  select expected_end_at into v_end from queue_tickets where id = v_id;
+  assert v_end between now() + interval '19 minutes' and now() + interval '21 minutes', format('expected end %s', v_end);
+
+  -- running over: +10 pushes the expected end
+  v_end2 := desk_set_expected_end('ticket', v_id, 'extend', 10);
+  assert v_end2 = v_end + interval '10 minutes', format('extended %s -> %s', v_end, v_end2);
+
+  -- finishing early: done in ~5
+  v_end2 := desk_set_expected_end('ticket', v_id, 'finish_in', 5);
+  assert v_end2 between now() + interval '4 minutes' and now() + interval '6 minutes', 'finish_in';
+
+  -- chair frees at expected end
+  assert chair_free_at(v_chandra) = v_end2, 'chair_free_at follows expected end';
+
+  perform desk_transition('ticket', v_id, 'complete');
+
+  -- only the 45-min cut waits; 25-min gap -> no_fit (never overruns into the booking)
+  v := desk_call_next(v_chandra);
+  assert v->>'reason' = 'no_fit', v::text;
+  assert (v->>'needed_min')::int = 45, v::text;
+  assert (v->>'gap_min')::int between 23 and 25, v::text;
+  assert v->>'next_label' = 'Gap T.', v::text;
+  assert (select status from queue_tickets where code like 'C-%' and duration_min = 45 and shop_day = shop_today()) = 'waiting';
+
+  -- invalid adjustments are rejected
+  begin
+    perform desk_set_expected_end('ticket', v_id, 'extend', 10);  -- not in chair any more
+    raise exception 'expected invalid_transition';
+  exception when others then assert sqlerrm = 'invalid_transition', sqlerrm; end;
+  begin
+    perform desk_set_expected_end('ticket', v_id, 'teleport', 10);
+    raise exception 'expected invalid_action';
+  exception when others then assert sqlerrm = 'invalid_action', sqlerrm; end;
+
+  perform desk_mark_delay_notified((select id from appointments where display_name = 'Gap T.'), 15);
+  assert (select delay_notified_min from appointments where display_name = 'Gap T.') = 15;
+end $$;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
+select pg_temp.expect_error($$select desk_set_expected_end('ticket', gen_random_uuid(), 'extend', 5)$$, 'forbidden');
+reset role;
+
 \echo 'ALL SMOKE TESTS PASSED'

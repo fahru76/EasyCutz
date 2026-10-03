@@ -19,7 +19,7 @@ import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { cn, formatDuration, formatMoney, formatQueueLine } from "@/lib/format";
 import { whatsappLink } from "@/lib/notify";
-import { buildQueueSnapshot } from "@/lib/queue";
+import { buildQueueSnapshot, type AppointmentEta } from "@/lib/queue";
 import { formatClock, formatLongDate, minutesBetween } from "@/lib/time";
 import type { ApiError, Barber, LiveAppointment, LiveBooking, LiveTicket, PassData, ShopSettings } from "@/lib/types/domain";
 import { SiteHeader } from "../ui/SiteHeader";
@@ -111,10 +111,14 @@ export function DigitalPass({
     pass.barber ??
     pass.preferredBarber;
 
+  // EZ-011: booked customers see the projected start when their barber runs behind.
+  const appointmentEta = booking.kind === "appointment" ? snapshot.appointmentEtas.get(booking.id) : undefined;
+  const barberOverMin = assignedBarber ? (snapshot.barbers.get(assignedBarber.id)?.runningOverMin ?? 0) : 0;
+
   const minutesUntil =
     booking.kind === "ticket"
       ? (eta?.waitMin ?? null)
-      : Math.max(0, Math.round(minutesBetween(now, new Date(booking.startsAt))));
+      : Math.max(0, Math.round(minutesBetween(now, appointmentEta?.projectedStart ?? new Date(booking.startsAt))));
   const turnSoon =
     isActive(booking) &&
     booking.status !== "pending_payment" &&
@@ -250,7 +254,9 @@ export function DigitalPass({
                   {booking.status === "called"
                     ? `${assignedBarber?.displayName ?? "Your barber"} is ready for you.`
                     : minutesUntil !== null && minutesUntil > 1
-                      ? `About ${minutesUntil} min to go. Please make your way to the shop.`
+                      ? booking.checkedInAt
+                        ? `You're checked in — about ${minutesUntil} min to go. Stay close to the chair.`
+                        : `About ${minutesUntil} min to go. Please make your way to the shop.`
                       : "A chair is opening now — please head to the shop."}
                 </p>
               </div>
@@ -276,9 +282,16 @@ export function DigitalPass({
             </div>
 
             {booking.kind === "ticket" ? (
-              <TicketHeadline ticket={booking} etaMin={eta?.waitMin ?? null} ahead={eta?.aheadCount ?? null} timezone={settings.timezone} now={now} />
+              <TicketHeadline
+                ticket={booking}
+                etaMin={eta?.waitMin ?? null}
+                ahead={eta?.aheadCount ?? null}
+                timezone={settings.timezone}
+                now={now}
+                barberOverMin={barberOverMin}
+              />
             ) : (
-              <AppointmentHeadline appt={booking} timezone={settings.timezone} />
+              <AppointmentHeadline appt={booking} timezone={settings.timezone} eta={appointmentEta} />
             )}
 
             {/* Progress */}
@@ -455,12 +468,14 @@ function TicketHeadline({
   ahead,
   timezone,
   now,
+  barberOverMin,
 }: {
   ticket: LiveTicket;
   etaMin: number | null;
   ahead: number | null;
   timezone: string;
   now: Date;
+  barberOverMin: number;
 }) {
   return (
     <div className="mt-5">
@@ -481,17 +496,39 @@ function TicketHeadline({
           )}
         </p>
       )}
+      {ticket.status === "waiting" && barberOverMin > 0 && (
+        <p className="mt-1 text-xs text-amber-200/80">Your barber is running a little behind — this estimate updates live.</p>
+      )}
       {ticket.status === "in_chair" && <p className="mt-2 text-sm text-emerald-300">Enjoy your cut ✂︎</p>}
     </div>
   );
 }
 
-function AppointmentHeadline({ appt, timezone }: { appt: LiveAppointment; timezone: string }) {
+function AppointmentHeadline({
+  appt,
+  timezone,
+  eta,
+}: {
+  appt: LiveAppointment;
+  timezone: string;
+  eta: AppointmentEta | undefined;
+}) {
+  const delayed = eta && eta.delayMin >= 5 && (appt.status === "confirmed" || appt.status === "checked_in");
   return (
     <div className="mt-5">
       <p className="text-xs text-zinc-500">{formatLongDate(appt.startsAt, timezone)}</p>
       <p className="font-mono text-5xl font-extrabold tracking-tight text-zinc-50">{formatClock(appt.startsAt, timezone)}</p>
       <p className="mt-1 font-mono text-sm text-zinc-500">until {formatClock(appt.endsAt, timezone)}</p>
+      {delayed && eta && (
+        <motion.p
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+        >
+          Running ~{eta.delayMin} min late — expected{" "}
+          <span className="font-mono font-semibold">{formatClock(eta.projectedStart, timezone)}</span>. Updates live.
+        </motion.p>
+      )}
       {appt.status === "pending_payment" && appt.holdExpiresAt && (
         <p className="mt-2 text-sm text-amber-300">
           Slot held until {formatClock(appt.holdExpiresAt, timezone)} — complete payment to confirm.

@@ -33,6 +33,10 @@ export interface ShopSettings {
   depositPercent: number;
   minDepositCents: number;
   notifyLeadMin: number;
+  /** EZ-011: prompt the desk to notify a booked customer once their delay reaches this. */
+  delayNotifyMin: number;
+  /** EZ-011: free gap before a booking that makes the desk suggest "come in early". */
+  earlyOfferMin: number;
   shopPhone: string | null;
   shopAddress: string | null;
 }
@@ -114,6 +118,8 @@ export interface LiveTicket {
   paymentStatus: PaymentStatus;
   checkedInAt: string | null;
   notifiedAt: string | null;
+  /** Expected finish while in the chair (adjustable from the desk). */
+  expectedEndAt: string | null;
   calledAt: string | null;
   seatedAt: string | null;
   completedAt: string | null;
@@ -135,6 +141,9 @@ export interface LiveAppointment {
   paymentStatus: PaymentStatus;
   amountDueNowCents: number;
   holdExpiresAt: string | null;
+  expectedEndAt: string | null;
+  delayNotifiedAt: string | null;
+  delayNotifiedMin: number | null;
   checkedInAt: string | null;
   calledAt: string | null;
   seatedAt: string | null;
@@ -237,6 +246,8 @@ export function mapSettings(row: TableRow<"shop_settings">): ShopSettings {
     depositPercent: row.deposit_percent,
     minDepositCents: row.min_deposit_cents,
     notifyLeadMin: row.notify_lead_min,
+    delayNotifyMin: row.delay_notify_min,
+    earlyOfferMin: row.early_offer_min,
     shopPhone: row.shop_phone,
     shopAddress: row.shop_address,
   };
@@ -311,6 +322,7 @@ export function mapTicket(row: TableRow<"queue_tickets">): LiveTicket {
     paymentStatus: row.payment_status,
     checkedInAt: row.checked_in_at,
     notifiedAt: row.notified_at,
+    expectedEndAt: row.expected_end_at,
     calledAt: row.called_at,
     seatedAt: row.seated_at,
     completedAt: row.completed_at,
@@ -334,6 +346,9 @@ export function mapAppointment(row: TableRow<"appointments">): LiveAppointment {
     paymentStatus: row.payment_status,
     amountDueNowCents: row.amount_due_now_cents,
     holdExpiresAt: row.hold_expires_at,
+    expectedEndAt: row.expected_end_at,
+    delayNotifiedAt: row.delay_notified_at,
+    delayNotifiedMin: row.delay_notified_min,
     checkedInAt: row.checked_in_at,
     calledAt: row.called_at,
     seatedAt: row.seated_at,

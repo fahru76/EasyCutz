@@ -44,6 +44,8 @@ export type Database = {
           deposit_percent: number;
           min_deposit_cents: number;
           notify_lead_min: number;
+          delay_notify_min: number;
+          early_offer_min: number;
           shop_phone: string | null;
           shop_address: string | null;
           updated_at: string;
@@ -60,6 +62,8 @@ export type Database = {
           deposit_percent?: number;
           min_deposit_cents?: number;
           notify_lead_min?: number;
+          delay_notify_min?: number;
+          early_offer_min?: number;
           shop_phone?: string | null;
           shop_address?: string | null;
           updated_at?: string;
@@ -246,6 +250,9 @@ export type Database = {
           payment_status: PaymentStatus;
           amount_due_now_cents: number;
           hold_expires_at: string | null;
+          expected_end_at: string | null;
+          delay_notified_at: string | null;
+          delay_notified_min: number | null;
           checked_in_at: string | null;
           called_at: string | null;
           seated_at: string | null;
@@ -269,6 +276,9 @@ export type Database = {
           payment_status?: PaymentStatus;
           amount_due_now_cents?: number;
           hold_expires_at?: string | null;
+          expected_end_at?: string | null;
+          delay_notified_at?: string | null;
+          delay_notified_min?: number | null;
           checked_in_at?: string | null;
           called_at?: string | null;
           seated_at?: string | null;
@@ -307,6 +317,7 @@ export type Database = {
           amount_due_now_cents: number;
           checked_in_at: string | null;
           notified_at: string | null;
+          expected_end_at: string | null;
           called_at: string | null;
           seated_at: string | null;
           completed_at: string | null;
@@ -332,6 +343,7 @@ export type Database = {
           amount_due_now_cents?: number;
           checked_in_at?: string | null;
           notified_at?: string | null;
+          expected_end_at?: string | null;
           called_at?: string | null;
           seated_at?: string | null;
           completed_at?: string | null;
@@ -477,6 +489,12 @@ export type Database = {
       };
       desk_check_in: { Args: { p_token: string }; Returns: Json };
       desk_mark_notified: { Args: { p_ticket_id: string }; Returns: undefined };
+      desk_set_expected_end: {
+        Args: { p_kind: BookingKind; p_id: string; p_mode: "extend" | "finish_in"; p_minutes: number };
+        Returns: string;
+      };
+      desk_mark_delay_notified: { Args: { p_appointment_id: string; p_delay_min: number }; Returns: undefined };
+      chair_free_at: { Args: { p_barber_id: string }; Returns: string };
       desk_set_duty: { Args: { p_barber_id: string; p_on_duty: boolean }; Returns: undefined };
     };
     Enums: {

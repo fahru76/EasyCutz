@@ -70,6 +70,34 @@ Either change must flow, **per barber**, to that barber's in-chair customer, cal
 - **Walk-in ETAs** keep moving earlier automatically. "First Available" tickets re-flow to whichever chair frees first. Tickets with a preferred barber only follow that barber's timeline.
 - Fast barbers get shorter learned durations (EZ-005), so their future ETAs start out accurate.
 
+## Status
+**Phase 1 delivered on 2026-10-03** (branch `feat/ez-011-service-timing`, merged to `main`):
+- `expected_end_at` (set on seating by trigger), `desk_set_expected_end` (+5/+10/+15, "Done ~5"), `chair_free_at`, gap-aware `desk_call_next` (returns `no_fit`), `desk_mark_delay_notified`. Migration `20261003000004_service_timing.sql`.
+- Estimator rewrite in `src/lib/queue.ts`:
+  - overrun detection; remainder = max(5 min, 25%);
+  - per-barber cascade into appointments (`appointmentEtas`);
+  - late-grace bug fixed;
+  - free-early gap plus `gapFillable`.
+- Desk:
+  - "+Xm over" (amber, then red);
+  - adjust buttons;
+  - "Free early · Xm until …" with "Seat … now" (checked in) or "Invite … early" (tap-to-send);
+  - no-fit toast;
+  - Delayed bookings panel with re-notify step of 10 min;
+  - "+Xm → time" badges.
+- Pass:
+  - "Running ~X min late — expected …" (≥ 5 min, live);
+  - running-behind note on walk-in tickets;
+  - checked-in wording for the turn-soon alert.
+- Tests: 8 new estimator unit tests and an SQL smoke section (gap-aware call, expected end, extend/finish_in, permissions). Browser E2E on a seeded scene.
+
+**Phase 2 (blocked on dependencies):**
+- delay ≥ 30 min → reschedule proposals in the message (EZ-002);
+- "Move to another free barber" (EZ-002 `reschedule_appointment`);
+- "Move me earlier" acceptance on the pass (EZ-002);
+- learned per-barber durations (EZ-005);
+- shift-end overflow warning and breaks (EZ-003).
+
 ## Acceptance criteria
 - [ ] A cut running 12 min over shows "+12m" on the desk within one tick (≤ 15 s), without a reload.
 - [ ] With a barber overrun, every later booking for that barber shows a projected start pushed back by the same amount (unit tests: single overrun, cascade through 3 bookings, break in between, shift end).
