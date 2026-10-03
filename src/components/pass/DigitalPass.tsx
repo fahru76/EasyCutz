@@ -17,7 +17,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
-import { cn, formatDuration, formatMoney } from "@/lib/format";
+import { cn, formatDuration, formatMoney, formatQueueLine } from "@/lib/format";
 import { whatsappLink } from "@/lib/notify";
 import { buildQueueSnapshot } from "@/lib/queue";
 import { formatClock, formatLongDate, minutesBetween } from "@/lib/time";
@@ -249,7 +249,9 @@ export function DigitalPass({
                 <p className="text-sm text-zinc-900/80">
                   {booking.status === "called"
                     ? `${assignedBarber?.displayName ?? "Your barber"} is ready for you.`
-                    : `About ${minutesUntil} min to go. Please make your way to the shop.`}
+                    : minutesUntil !== null && minutesUntil > 1
+                      ? `About ${minutesUntil} min to go. Please make your way to the shop.`
+                      : "A chair is opening now — please head to the shop."}
                 </p>
               </div>
             </motion.div>
@@ -473,8 +475,8 @@ function TicketHeadline({
       </motion.p>
       {ticket.status === "waiting" && (
         <p className="mt-2 font-mono text-sm text-amber-400">
-          {etaMin === null ? "Waiting for a chair to open" : `~${etaMin} mins wait • ${ahead ?? 0} ahead`}
-          {etaMin !== null && (
+          {etaMin === null ? "Waiting for a chair to open" : formatQueueLine(etaMin, ahead ?? 0)}
+          {etaMin !== null && etaMin > 1 && (
             <span className="text-zinc-500"> · around {formatClock(new Date(now.getTime() + etaMin * 60000), timezone)}</span>
           )}
         </p>

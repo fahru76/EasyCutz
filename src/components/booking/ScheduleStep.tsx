@@ -184,7 +184,7 @@ export function ScheduleStep({
         {state.kind === "ready" && grouped.length === 0 && (
           <div className="flex flex-col items-center rounded-2xl border border-dashed border-zinc-800 p-8 text-center">
             <CalendarX2 className="size-8 text-zinc-600" />
-            <p className="mt-3 font-semibold text-zinc-300">Fully booked</p>
+            <p className="mt-3 font-semibold text-zinc-300">{date === today ? "No more times today" : "Fully booked"}</p>
             <p className="mt-1 text-sm text-zinc-500">
               No {formatDuration(durationMin)} window left on this day. Try another date
               {barberId !== "any" ? " or First Available" : ""}.

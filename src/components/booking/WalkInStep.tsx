@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Armchair, DoorClosed, Hourglass, Ticket, Users } from "lucide-react";
-import { cn, formatWait } from "@/lib/format";
+import { cn, formatQueueLine, formatWait } from "@/lib/format";
 import type { QueueSnapshot, WalkInEstimate } from "@/lib/queue";
 import { formatClock } from "@/lib/time";
 import type { Barber } from "@/lib/types/domain";
@@ -51,7 +51,7 @@ export function WalkInStep({
         </div>
         <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-4 py-3 text-sm text-zinc-400">
           <span className="font-mono text-amber-400">
-            ~{estimate.waitMin} mins wait • {estimate.aheadCount} ahead
+            {formatQueueLine(estimate.waitMin, estimate.aheadCount)}
           </span>{" "}
           — likely with <span className="font-semibold text-zinc-200">{assigned?.displayName ?? "the next free barber"}</span>{" "}
           around <span className="font-mono text-zinc-200">{formatClock(estimate.startsAt, timezone)}</span>.
@@ -109,8 +109,8 @@ export function WalkInStep({
       )}
 
       <p className="text-xs leading-relaxed text-zinc-500">
-        Take a number now and wait anywhere — your digital pass updates live (Waiting → In Chair → Completed). We&apos;ll
-        message you on WhatsApp when you&apos;re about 10 minutes away.
+        Take a number now and wait anywhere — your digital pass updates live (Waiting → In Chair → Completed). The shop
+        will WhatsApp you when you&apos;re about 10 minutes away, and the pass alerts you too.
       </p>
     </div>
   );

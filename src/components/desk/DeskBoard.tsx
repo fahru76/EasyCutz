@@ -156,6 +156,7 @@ export function DeskBoard({
   return (
     <div className="flex min-h-dvh flex-col">
       <SiteHeader
+        wide
         shopName={settings.shopName}
         status={live.status}
         right={
@@ -354,7 +355,7 @@ function ChairCard({
   const current = live?.current ?? null;
   const called = live?.called ?? null;
   const progress = current
-    ? Math.min(1, (now.getTime() - new Date(current.seatedAt ?? now.toISOString()).getTime()) / (current.durationMin * 60000))
+    ? Math.min(1, Math.max(0, (now.getTime() - new Date(current.seatedAt ?? now.toISOString()).getTime()) / (current.durationMin * 60000)))
     : 0;
 
   return (
@@ -381,7 +382,7 @@ function ChairCard({
             <p className="truncate text-sm text-zinc-300">{bookingLabel(current, contacts.get(current.id)).name}</p>
             <p className="truncate text-xs text-zinc-500">{current.serviceSummary}</p>
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-800">
-              <motion.div className="h-full bg-emerald-400" animate={{ width: `${progress * 100}%` }} />
+              <motion.div className="h-full bg-emerald-400" initial={{ width: 0 }} animate={{ width: `${Math.round(progress * 100)}%` }} />
             </div>
           </>
         ) : called ? (

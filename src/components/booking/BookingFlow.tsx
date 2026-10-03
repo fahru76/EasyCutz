@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { computeAmountDueNow, computeCartTotals } from "@/lib/cart";
-import { cn, formatMoney, formatWait, normalizePhone } from "@/lib/format";
+import { cn, formatMoney, formatQueueLine, formatWait, normalizePhone } from "@/lib/format";
 import { buildQueueSnapshot, estimateWalkIn } from "@/lib/queue";
 import type { ApiError, BookingMode, Catalog, CreateBookingResponse } from "@/lib/types/domain";
 import { BOOKING_STEPS, useBookingStore, type BookingStep } from "@/store/booking-store";
@@ -101,7 +101,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
 
   const hint =
     step === "when" && mode === "walk_in" && walkInEstimate
-      ? `~${walkInEstimate.waitMin} mins wait • ${walkInEstimate.aheadCount} ahead`
+      ? formatQueueLine(walkInEstimate.waitMin, walkInEstimate.aheadCount)
       : null;
 
   async function submit() {
@@ -228,7 +228,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
             {step === "barber" && <BarberRoster barbers={live.barbers} snapshot={snapshot} mode={mode} />}
             {step === "when" && (
               <section>
-                <div className="mb-4 flex items-end justify-between gap-3">
+                <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
                   <div>
                     <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500/90">Step 3</p>
                     <h2 className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">
@@ -343,7 +343,7 @@ function Hero({
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                 <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
               </span>
-              <span className="text-zinc-200">{formatWait(waitMin)} wait</span>
+              <span className="text-zinc-200">{waitMin <= 1 ? "No wait" : `${formatWait(waitMin)} wait`}</span>
               <span className="text-zinc-600">•</span>
               <span className="text-zinc-400">{waiting} ahead</span>
               <span className="text-zinc-600">•</span>
@@ -384,7 +384,7 @@ function ModeSwitch({
               aria-checked={active}
               onClick={() => onMode(it.id)}
               className={cn(
-                "relative flex items-center gap-1.5 rounded-full font-semibold transition-colors",
+                "relative flex items-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition-colors",
                 compact ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm",
                 active ? "text-zinc-950" : "text-zinc-400 hover:text-zinc-200",
               )}

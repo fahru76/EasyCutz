@@ -11,14 +11,17 @@ export function SiteHeader({
   shopName,
   status,
   right,
+  wide = false,
 }: {
+  wide?: boolean;
   shopName: string;
   status?: LiveStatus;
   right?: ReactNode;
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4">
+      <div className={cn("mx-auto flex h-16 items-center", wide ? "max-w-7xl" : "max-w-5xl")}>
+      <div className="flex w-full items-center justify-between gap-3 px-4">
         <Link href="/" className="flex items-center gap-2.5">
           <span className="flex size-9 items-center justify-center rounded-xl bg-amber-500 text-zinc-950 shadow-[0_8px_24px_-8px_rgb(245_158_11/0.7)]">
             <Scissors className="size-5" strokeWidth={2.5} />
@@ -43,6 +46,7 @@ export function SiteHeader({
           )}
           {right}
         </div>
+      </div>
       </div>
     </header>
   );

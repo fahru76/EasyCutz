@@ -25,6 +25,11 @@ export function formatWait(minutes: number): string {
   return `~${formatDuration(minutes)}`;
 }
 
+/** Queue headline: "~25 mins wait • 2 ahead" (or "No wait • 0 ahead"). */
+export function formatQueueLine(waitMin: number, ahead: number): string {
+  return `${waitMin <= 1 ? "No wait" : `~${waitMin} mins wait`} • ${ahead} ahead`;
+}
+
 /**
  * Normalises a phone number to E.164. Malaysian local formats are accepted:
  *   "012-345 6789" -> "+60123456789",  "60123456789" -> "+60123456789"
