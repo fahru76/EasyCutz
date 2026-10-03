@@ -12,7 +12,7 @@ Every screen, message and menu item is English only. Many customers prefer Bahas
 - Service and add-on names are a single `name` / `description` column.
 
 ## Scope
-- **Languages:** English (`en`) and Bahasa Melayu (`ms`); default follows the browser, falling back to English. _Assumed pair; confirm._
+- **Languages:** English (`en`) and Bahasa Melayu (`ms`); default follows the browser, falling back to English.
 - **Language switch** (EN | BM) in the header, remembered in a cookie. No URL change needed. Optionally add `/ms` routes later for SEO.
 - **UI strings:** move to typed dictionaries `src/i18n/en.ts` and `src/i18n/ms.ts`, where TypeScript enforces that every key exists in both. Load them server-side and pass them to client components. No heavy library is needed; `next-intl` is an option if plurals get complex.
 - **Dates, times and money:** use the active locale (`ms-MY` / `en-MY`) in `formatClock`, `formatLongDate` and `formatDayLabel`. Currency stays `RM`.
@@ -28,7 +28,15 @@ Every screen, message and menu item is English only. Many customers prefer Bahas
 - [ ] A customer who booked in BM receives BM WhatsApp/SMS templates from the desk.
 - [ ] Dates and times read naturally in BM (e.g. "Selasa, 6 Oktober · 2:00 PTG").
 - [ ] Service names fall back to English when no BM translation is entered.
+- [ ] No unreviewed BM strings ship: CI blocks any `TODO(review)` marker on `main`.
 
-## Open questions
-- Confirm the language pair: English + Bahasa Melayu? (Chinese or Tamil could be added later using the same structure.)
-- Who will provide or approve the BM copy?
+## Decisions (2026-10-03)
+- Language pair confirmed: **English + Bahasa Melayu**. Chinese or Tamil can be added later with the same structure.
+- **BM copy is written and approved by Fahru (shop owner).**
+
+## Translation workflow
+- Developer adds each new key in `en.ts` with a draft BM value in `ms.ts`, marked `// TODO(review)`.
+- `npm run i18n:review` lists every key still marked for review, with its English text alongside. That list goes to Fahru for approval.
+- Fahru's approved wording replaces the draft and the marker is removed.
+- Release gate: CI fails if any `TODO(review)` marker is left in `ms.ts` on `main`.
+- Customer message templates (WhatsApp/SMS) follow the same review step.
