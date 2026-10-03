@@ -26,6 +26,8 @@ export interface BookingState {
   setSlot: (slot: TimeSlot | null) => void;
   setPaymentOption: (option: PaymentOption) => void;
   updateCustomer: (patch: Partial<CustomerDetails>) => void;
+  /** Drops items that are no longer on the menu (owner hid or removed them). */
+  pruneCart: (validServiceIds: ReadonlySet<string>, validAddonIds: ReadonlySet<string>) => void;
   goTo: (step: BookingStep) => void;
   next: () => void;
   back: () => void;
@@ -58,6 +60,14 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setSlot: (slot) => set({ slot }),
   setPaymentOption: (paymentOption) => set({ paymentOption }),
   updateCustomer: (patch) => set((s) => ({ customer: { ...s.customer, ...patch } })),
+  pruneCart: (validServiceIds, validAddonIds) => {
+    const { serviceIds, addonIds } = get();
+    const keptServices = serviceIds.filter((id) => validServiceIds.has(id));
+    const keptAddons = addonIds.filter((id) => validAddonIds.has(id));
+    if (keptServices.length !== serviceIds.length || keptAddons.length !== addonIds.length) {
+      set({ serviceIds: keptServices, addonIds: keptAddons, slot: null });
+    }
+  },
   goTo: (step) => set({ step }),
   next: () => {
     const i = BOOKING_STEPS.indexOf(get().step);

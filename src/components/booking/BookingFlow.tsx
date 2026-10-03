@@ -4,6 +4,7 @@ import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { CalendarClock, Check, TicketCheck, TriangleAlert, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useLiveCatalog } from "@/hooks/use-live-catalog";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { computeAmountDueNow, computeCartTotals } from "@/lib/cart";
@@ -37,7 +38,13 @@ function validateCustomer(c: { name: string; phone: string; email: string }): Ch
 }
 
 export function BookingFlow({ catalog }: { catalog: Catalog }) {
-  const { settings, services, addons, shifts, paymentsEnabled } = catalog;
+  const { shifts, paymentsEnabled } = catalog;
+  // EZ-009: menu, prices and rules update live when the owner edits them.
+  const { settings, services, addons } = useLiveCatalog({
+    settings: catalog.settings,
+    services: catalog.services,
+    addons: catalog.addons,
+  });
   const router = useRouter();
   const now = useNow(15_000);
   const live = useLiveShop({ initialBarbers: catalog.barbers, timezone: settings.timezone });
@@ -64,6 +71,12 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
   const [showErrors, setShowErrors] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const customerErrors = validateCustomer(customer);
+
+  // Remove anything the owner just hid from the menu.
+  const pruneCart = store.pruneCart;
+  useEffect(() => {
+    pruneCart(new Set(services.map((s) => s.id)), new Set(addons.map((a) => a.id)));
+  }, [services, addons, pruneCart]);
 
   // Online payment options are hidden when Stripe isn't configured.
   useEffect(() => {

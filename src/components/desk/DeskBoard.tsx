@@ -11,12 +11,14 @@ import {
   MessageCircle,
   MessageSquare,
   ScanLine,
+  Settings2,
   Undo2,
   UserCheck,
   UserX,
   Users,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveShop } from "@/hooks/use-live-shop";
@@ -47,11 +49,13 @@ export function DeskBoard({
   settings,
   initialBarbers,
   staffName,
+  isOwner,
   origin,
 }: {
   settings: ShopSettings;
   initialBarbers: Barber[];
   staffName: string;
+  isOwner: boolean;
   origin: string;
 }) {
   const router = useRouter();
@@ -187,6 +191,14 @@ export function DeskBoard({
         status={live.status}
         right={
           <div className="flex items-center gap-2">
+            {isOwner && (
+              <Link
+                href="/desk/admin"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-zinc-800 px-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-zinc-100"
+              >
+                <Settings2 className="size-4" /> Admin
+              </Link>
+            )}
             <span className="hidden text-sm text-zinc-400 sm:inline">{staffName}</span>
             <button
               type="button"

@@ -34,6 +34,7 @@ export default async function DeskPage() {
       settings={catalog.settings}
       initialBarbers={catalog.barbers}
       staffName={session.displayName}
+      isOwner={session.role === "owner"}
       origin={origin}
     />
   );

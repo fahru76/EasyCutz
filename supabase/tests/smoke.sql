@@ -292,4 +292,54 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb
 select pg_temp.expect_error($$select desk_set_expected_end('ticket', gen_random_uuid(), 'extend', 5)$$, 'forbidden');
 reset role;
 
+\echo '--- EZ-009 owner admin'
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000cc', 'owner@example.com') on conflict do nothing;
+insert into staff (user_id, role, display_name) values ('00000000-0000-0000-0000-0000000000cc', 'owner', 'Owner') on conflict do nothing;
+set role authenticated;
+
+-- host (staff but not owner) is refused
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select pg_temp.expect_error($$select admin_save_service(null, 'Hack Cut', '', 'haircut', 30, 100, false, true)$$, 'forbidden');
+select pg_temp.expect_error($$select admin_update_settings('{"deposit_percent": 1}'::jsonb)$$, 'forbidden');
+do $$ begin assert (select count(*) from catalog_changes) = 0, 'host cannot read audit log'; end $$;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000cc', false);
+do $$
+declare v_id uuid; v_old_price integer; v_cut uuid;
+begin
+  assert is_owner();
+  -- create
+  v_id := admin_save_service(null, 'Hair Dye (Short)', 'Single colour', 'haircut', 90, 12000, false, true);
+  assert (select slug from services where id = v_id) = 'hair-dye-short';
+  -- price change does not touch existing bookings
+  select id into v_cut from services where slug = 'skin-fade';
+  select price_cents into v_old_price from appointments where 'Skin Fade' = service_summary limit 1;
+  perform admin_save_service(v_cut, 'Skin Fade', 'Bald-to-blend fade', 'haircut', 45, 5500, true, true);
+  assert (select price_cents from services where id = v_cut) = 5500;
+  assert (select price_cents from appointments where 'Skin Fade' = service_summary limit 1) = v_old_price, 'snapshot kept';
+  -- deactivate hides it from price_cart
+  perform admin_save_service(v_id, 'Hair Dye (Short)', 'Single colour', 'haircut', 90, 12000, false, false);
+  -- add-on + reorder
+  perform admin_save_addon(null, 'Nose Wax', '', 5, 1000, true);
+  perform admin_reorder('addons', array(select id from addons order by name));
+  -- settings
+  perform admin_update_settings('{"deposit_percent": 30, "min_deposit_cents": 1500, "shop_phone": "+60199998888"}'::jsonb);
+  assert (select deposit_percent from shop_settings) = 30;
+  assert (select shop_phone from shop_settings) = '+60199998888';
+  assert (select count(*) from catalog_changes) >= 6, format('audit rows %s', (select count(*) from catalog_changes));
+  assert exists (select 1 from catalog_changes where row_id = v_id::text and action = 'deactivate'), 'deactivation logged';
+  assert exists (select 1 from catalog_changes where row_id = v_cut::text and (before->>'price_cents')::int = 5000 and (after->>'price_cents')::int = 5500), 'price change logged with before/after';
+end $$;
+select pg_temp.expect_error($$select admin_save_service(null, 'Bad', '', 'haircut', 0, 100, false, true)$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_save_service(null, 'Bad', '', 'haircut', 30, -1, false, true)$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_save_service(null, '   ', '', 'haircut', 30, 100, false, true)$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_update_settings('{"deposit_percent": 150}'::jsonb)$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_update_settings('{"timezone": "UTC"}'::jsonb)$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_update_settings('{"slot_interval_min": 7}'::jsonb)$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_update_settings('{"hold_minutes": "abc"}'::jsonb)$$, 'invalid_value');
+reset role;
+select pg_temp.expect_error($$select price_cart(array[(select id from services where slug='hair-dye-short')], '{}'::uuid[])$$, 'unknown_service');
+-- restore defaults for later sections
+update shop_settings set deposit_percent = 20, min_deposit_cents = 1000;
+
 \echo 'ALL SMOKE TESTS PASSED'

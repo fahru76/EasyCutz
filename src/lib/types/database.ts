@@ -443,6 +443,30 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["payments"]["Insert"]>;
         Relationships: [];
       };
+      catalog_changes: {
+        Row: {
+          id: string;
+          changed_by: string | null;
+          changed_at: string;
+          table_name: "services" | "addons" | "shop_settings";
+          row_id: string;
+          action: "create" | "update" | "activate" | "deactivate" | "reorder";
+          before: Json | null;
+          after: Json | null;
+        };
+        Insert: {
+          id?: string;
+          changed_by?: string | null;
+          changed_at?: string;
+          table_name: "services" | "addons" | "shop_settings";
+          row_id: string;
+          action: "create" | "update" | "activate" | "deactivate" | "reorder";
+          before?: Json | null;
+          after?: Json | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["catalog_changes"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: {
@@ -495,6 +519,33 @@ export type Database = {
       };
       desk_mark_delay_notified: { Args: { p_appointment_id: string; p_delay_min: number }; Returns: undefined };
       chair_free_at: { Args: { p_barber_id: string }; Returns: string };
+      is_owner: { Args: never; Returns: boolean };
+      admin_save_service: {
+        Args: {
+          p_id: string | null;
+          p_name: string;
+          p_description: string;
+          p_category: ServiceCategory;
+          p_duration_min: number;
+          p_price_cents: number;
+          p_is_popular: boolean;
+          p_is_active: boolean;
+        };
+        Returns: string;
+      };
+      admin_save_addon: {
+        Args: {
+          p_id: string | null;
+          p_name: string;
+          p_description: string;
+          p_duration_min: number;
+          p_price_cents: number;
+          p_is_active: boolean;
+        };
+        Returns: string;
+      };
+      admin_reorder: { Args: { p_table: "services" | "addons"; p_ids: string[] }; Returns: undefined };
+      admin_update_settings: { Args: { p_patch: Json }; Returns: undefined };
       desk_set_duty: { Args: { p_barber_id: string; p_on_duty: boolean }; Returns: undefined };
     };
     Enums: {
