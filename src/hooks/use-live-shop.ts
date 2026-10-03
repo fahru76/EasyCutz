@@ -94,7 +94,7 @@ export function useLiveShop(options: { initialBarbers: Barber[]; timezone: strin
 
   useEffect(() => {
     const db = getBrowserSupabase();
-    void refresh();
+    scheduleRefresh(); // initial load
 
     const channel = db
       .channel(channelName)

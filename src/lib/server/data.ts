@@ -368,5 +368,10 @@ export async function settleCheckout(sessionId: string, paid: boolean, paymentIn
 export function resolveOrigin(request: Request): string {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (configured) return configured.replace(/\/+$/, "");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (forwardedHost) {
+    const proto = request.headers.get("x-forwarded-proto") ?? "https";
+    return `${proto}://${forwardedHost}`;
+  }
   return new URL(request.url).origin;
 }
