@@ -26,6 +26,19 @@ When an online booking is affected (shop closure EZ-001, barber sick/time off, d
 - Accepting a proposal calls `reschedule_appointment`. The other offers are released and the deposit carries over.
 - If no reply arrives before the offers expire, the booking stays in "Needs reschedule" on the desk; nothing is auto-cancelled.
 
+## Status
+**Delivered 2026-10-03** (branch `feat/ez-002-reschedule`, merged to `main`). Migration `20261003000006_reschedule.sql`.
+- `do_reschedule` (atomic, keeps pass token, payment and deposit) with `reschedule_by_token` (customer, enforces `reschedule_cutoff_min`, default 120) and `desk_reschedule` (staff).
+- `reschedule_offers`: soft holds (`offer_hold_hours`, default 24) that block the slot for other customers; created by `create_reschedule_offers`, released when the booking closes or the offer expires.
+- `booking_events` audit table; shown on the pass.
+- Dynamic proposals (`src/lib/reschedule.ts` + `proposeRescheduleSlots`): ranked by the real slot engine, same barber first, then nearest time; same-day "delay" / "early" proposals use only barbers on duty.
+- Customer: "Reschedule" on the pass (opens on the booking's date; `?reschedule=1` opens it directly), one-tap accept of desk offers ("Move me earlier").
+- Desk: Reschedule on every appointment row, on delayed bookings (≥ 30 min: emphasised, with proposals in the message) and on free-early chairs; tap-to-send confirmation banner after a move.
+- Messages: `rescheduleOffersMessage`, `earlierSlotMessage`, `rescheduledMessage` (tap-to-send WhatsApp/SMS).
+- Verified: SQL smoke section (cutoff, past time, other barber, overlap, offer holds) and browser E2E (desk offer → customer accepts; delay → move to another barber; customer self-picks a new time).
+
+**Not built:** `closureMessage` (belongs with EZ-001).
+
 ## Acceptance criteria
 - [ ] Customer can reschedule from the pass to any slot the engine offers; old window frees immediately; pass updates live.
 - [ ] Concurrent reschedules to the same slot: exactly one wins, the other gets `slot_unavailable`.

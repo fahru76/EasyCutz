@@ -20,6 +20,16 @@ Only someone with Supabase access can change prices, durations or the menu (Tabl
 - Changes stream to customers through Realtime: the menu updates without a page reload. Add `services` and `addons` to the realtime publication.
 - Preview "how the menu looks to customers" before saving.
 
+## Status
+**Delivered 2026-10-03** (branch `feat/ez-009-admin`, merged to `main`). Migration `20261003000005_admin_catalog.sql`.
+- `is_owner()` / `assert_owner()`; owner-only RPCs `admin_save_service`, `admin_save_addon`, `admin_reorder`, `admin_update_settings` (allow-listed keys, DB check constraints still apply).
+- `catalog_changes` audit table (who, when, before/after), shown in the "Change log" tab.
+- `/desk/admin` (owner only; hosts and barbers see "Owner access only"): Services, Add-ons, Fees & rules (with live deposit preview), Change log. Reorder uses up/down buttons rather than drag. Deactivate is a soft delete.
+- `services`, `addons` and `shop_settings` are in the realtime publication; the customer menu updates live and the cart drops items that become inactive.
+- Verified: SQL smoke section, plus browser E2E (RM 50 → 55 shown on the menu, logged in the change log; deposit preview RM 12.50).
+
+**Not built:** scheduled price changes (`effective_from`, optional), BM fields (EZ-010).
+
 ## Acceptance criteria
 - [ ] An owner can change a service price and the booking page shows the new price within one realtime tick. Existing bookings keep their old price.
 - [ ] Host/barber accounts can't see or call admin actions (RPC rejects with `forbidden`; SQL smoke test).

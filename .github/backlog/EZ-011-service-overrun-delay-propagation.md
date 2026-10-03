@@ -91,10 +91,12 @@ Either change must flow, **per barber**, to that barber's in-chair customer, cal
   - checked-in wording for the turn-soon alert.
 - Tests: 8 new estimator unit tests and an SQL smoke section (gap-aware call, expected end, extend/finish_in, permissions). Browser E2E on a seeded scene.
 
-**Phase 2 (blocked on dependencies):**
-- delay ≥ 30 min → reschedule proposals in the message (EZ-002);
-- "Move to another free barber" (EZ-002 `reschedule_appointment`);
-- "Move me earlier" acceptance on the pass (EZ-002);
+**Phase 2 — delivered with EZ-002 on 2026-10-03:**
+- delay ≥ 30 min → reschedule proposals in the message;
+- move a delayed booking to another free (on-duty) barber;
+- "Move me earlier" one-tap acceptance on the pass (offer from a free-early chair).
+
+**Still pending:**
 - learned per-barber durations (EZ-005);
 - shift-end overflow warning and breaks (EZ-003).
 
