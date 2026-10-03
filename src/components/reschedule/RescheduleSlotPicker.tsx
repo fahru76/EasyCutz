@@ -26,6 +26,7 @@ export function RescheduleSlotPicker({
   durationMin,
   originalBarberId,
   ignoreAppointmentId,
+  initialDate,
   busy,
   onConfirm,
 }: {
@@ -37,6 +38,8 @@ export function RescheduleSlotPicker({
   durationMin: number;
   originalBarberId: string;
   ignoreAppointmentId: string;
+  /** Shop-local date to open on (the booking's own date); falls back to the first open day. */
+  initialDate?: string;
   busy: boolean;
   onConfirm: (slot: TimeSlot, barberId: string) => void;
 }) {
@@ -55,7 +58,8 @@ export function RescheduleSlotPicker({
     [today, settings.bookingHorizonDays, candidateIds, shifts],
   );
   const [chosenDate, setChosenDate] = useState<string | null>(null);
-  const date = chosenDate && days.some((d) => d.date === chosenDate && d.open) ? chosenDate : (days.find((d) => d.open)?.date ?? null);
+  const isOpen = (d: string | null | undefined) => Boolean(d && days.some((x) => x.date === d && x.open));
+  const date = isOpen(chosenDate) ? chosenDate : isOpen(initialDate) ? (initialDate ?? null) : (days.find((d) => d.open)?.date ?? null);
   const [slot, setSlot] = useState<TimeSlot | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [result, setResult] = useState<{ key: string; slots: TimeSlot[] | null; error: string | null } | null>(null);

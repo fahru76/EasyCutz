@@ -24,10 +24,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { cn, formatMoney, formatWait } from "@/lib/format";
-import { calledNowMessage, delayMessage, freeEarlyMessage, smsLink, turnSoonMessage, whatsappLink } from "@/lib/notify";
+import { calledNowMessage, delayMessage, freeEarlyMessage, rescheduledMessage, smsLink, turnSoonMessage, whatsappLink } from "@/lib/notify";
 import { buildQueueSnapshot, type AppointmentEta, type QueueSnapshot } from "@/lib/queue";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
-import { formatClock } from "@/lib/time";
+import { formatClock, formatShortDateTime } from "@/lib/time";
 import {
   mapContact,
   type Barber,
@@ -39,7 +39,7 @@ import {
   type Shift,
   type ShopSettings,
 } from "@/lib/types/domain";
-import { DeskReschedule } from "../reschedule/DeskReschedule";
+import { DeskReschedule, type MovedBooking } from "../reschedule/DeskReschedule";
 import { SiteHeader } from "../ui/SiteHeader";
 import { Avatar, Badge, Button, Card, Switch, type BadgeTone } from "../ui/primitives";
 
@@ -105,6 +105,7 @@ export function DeskBoard({
 
   // ---- actions ------------------------------------------------------------------
   const [pending, setPending] = useState<string | null>(null);
+  const [lastMoved, setLastMoved] = useState<MovedBooking | null>(null);
   const [toast, setToast] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -250,6 +251,7 @@ export function DeskBoard({
               shifts={shifts}
               barbers={live.barbers}
               onChanged={() => void live.refresh()}
+              onMoved={setLastMoved}
               appointmentsById={appointmentsById}
               pending={pending}
               onCallNext={() => void callNext(barber)}
@@ -259,6 +261,38 @@ export function DeskBoard({
             />
           ))}
         </section>
+
+        {lastMoved && (
+          <div role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            <CircleCheck className="size-5 shrink-0" />
+            <p className="flex-1">
+              Moved <span className="font-semibold">{lastMoved.customerName}</span> to{" "}
+              <span className="font-mono">{formatShortDateTime(lastMoved.startsAt, settings.timezone)}</span> with {lastMoved.barberName}.
+            </p>
+            {lastMoved.phone && lastMoved.passUrl && (
+              <a
+                href={whatsappLink(
+                  lastMoved.phone,
+                  rescheduledMessage({
+                    shopName: settings.shopName,
+                    customerName: lastMoved.customerName,
+                    barberName: lastMoved.barberName,
+                    newTime: formatShortDateTime(lastMoved.startsAt, settings.timezone),
+                    passUrl: lastMoved.passUrl,
+                  }),
+                )}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 font-semibold text-zinc-950"
+              >
+                <MessageCircle className="size-4" /> Send confirmation
+              </a>
+            )}
+            <button type="button" aria-label="Dismiss" onClick={() => setLastMoved(null)} className="text-emerald-200/70 hover:text-emerald-100">
+              ✕
+            </button>
+          </div>
+        )}
 
         {delayed.length > 0 && (
           <section aria-label="Delayed bookings">
@@ -278,6 +312,7 @@ export function DeskBoard({
                   shifts={shifts}
                   barbers={live.barbers}
                   onChanged={() => void live.refresh()}
+                  onMoved={setLastMoved}
                   pending={pending}
                   onNotified={() => void markDelayNotified(appt.id, eta.delayMin)}
                 />
@@ -335,6 +370,7 @@ export function DeskBoard({
                   shifts={shifts}
                   barbers={live.barbers}
                   onChanged={() => void live.refresh()}
+                  onMoved={setLastMoved}
                   now={now}
                   pending={pending}
                   onCheckIn={(token) => void checkIn(token)}
@@ -419,6 +455,7 @@ function ChairCard({
   shifts,
   barbers,
   onChanged,
+  onMoved,
   appointmentsById,
   pending,
   onCallNext,
@@ -435,6 +472,7 @@ function ChairCard({
   shifts: Shift[];
   barbers: Barber[];
   onChanged: () => void;
+  onMoved: (moved: MovedBooking) => void;
   appointmentsById: Map<string, LiveAppointment>;
   pending: string | null;
   onCallNext: () => void;
@@ -576,6 +614,7 @@ function ChairCard({
                 reason="early"
                 emphasis
                 onChanged={onChanged}
+                onMoved={onMoved}
               />
               <a
                 href={whatsappLink(
@@ -795,6 +834,7 @@ function AppointmentRow({
   shifts,
   barbers,
   onChanged,
+  onMoved,
   now,
   pending,
   onCheckIn,
@@ -810,6 +850,7 @@ function AppointmentRow({
   shifts: Shift[];
   barbers: Barber[];
   onChanged: () => void;
+  onMoved: (moved: MovedBooking) => void;
   now: Date;
   pending: string | null;
   onCheckIn: (token: string) => void;
@@ -880,6 +921,7 @@ function AppointmentRow({
             origin={origin}
             reason="manual"
             onChanged={onChanged}
+            onMoved={onMoved}
           />
         </div>
       )}
@@ -924,6 +966,7 @@ function DelayedRow({
   shifts,
   barbers,
   onChanged,
+  onMoved,
   pending,
   onNotified,
 }: {
@@ -936,6 +979,7 @@ function DelayedRow({
   shifts: Shift[];
   barbers: Barber[];
   onChanged: () => void;
+  onMoved: (moved: MovedBooking) => void;
   pending: string | null;
   onNotified: () => void;
 }) {
@@ -1010,6 +1054,7 @@ function DelayedRow({
           reason="delay"
           emphasis={eta.delayMin >= DELAY_RESCHEDULE_MIN}
           onChanged={onChanged}
+          onMoved={onMoved}
         />
       </div>
     </div>

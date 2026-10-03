@@ -48,7 +48,7 @@ export async function proposeRescheduleSlots(
   const rangeEnd = localDayBounds(dates[dates.length - 1]!, tz).end;
 
   const [barbers, shifts, appts, timeOff, offers] = await Promise.all([
-    db.from("barbers").select("id").eq("is_active", true),
+    db.from("barbers").select("id, is_on_duty").eq("is_active", true),
     db.from("barber_shifts").select("*"),
     db
       .from("appointments")
@@ -82,6 +82,7 @@ export async function proposeRescheduleSlots(
   ];
 
   const barberIds = reason === "early" ? [appt.barber_id] : (barbers.data ?? []).map((b) => b.id);
+  const onDutyIds = new Set((barbers.data ?? []).filter((b) => b.is_on_duty).map((b) => b.id));
   const mappedShifts = (shifts.data ?? []).map(mapShift);
   const candidates: RescheduleCandidate[] = [];
   for (const date of dates) {
@@ -100,6 +101,8 @@ export async function proposeRescheduleSlots(
     });
     for (const slot of slots) {
       for (const barberId of slot.availableBarberIds) {
+        // Urgent same-day offers (running late / free early) only go to barbers who are in the shop now.
+        if (date === today && (reason === "delay" || reason === "early") && !onDutyIds.has(barberId)) continue;
         candidates.push({ startsAt: slot.startsAt, barberId, date, localMinute: slot.localMinute });
       }
     }

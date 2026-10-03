@@ -6,11 +6,20 @@ import { useState } from "react";
 import { cn } from "@/lib/format";
 import { earlierSlotMessage, rescheduleOffersMessage, rescheduledMessage, smsLink, whatsappLink } from "@/lib/notify";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
-import { formatClock, formatShortDateTime } from "@/lib/time";
+import { formatClock, formatShortDateTime, localDateString } from "@/lib/time";
 import type { RescheduleReason } from "@/lib/types/database";
 import type { ApiError, Barber, BookingContact, LiveAppointment, Shift, ShopSettings } from "@/lib/types/domain";
 import { Button } from "../ui/primitives";
 import { RescheduleSlotPicker } from "./RescheduleSlotPicker";
+
+export interface MovedBooking {
+  appointmentId: string;
+  customerName: string;
+  phone: string | null;
+  passUrl: string | null;
+  startsAt: string;
+  barberName: string;
+}
 
 interface Offer {
   id: string;
@@ -45,6 +54,7 @@ export function DeskReschedule({
   reason,
   emphasis = false,
   onChanged,
+  onMoved,
 }: {
   appt: LiveAppointment;
   contact: BookingContact | undefined;
@@ -55,6 +65,9 @@ export function DeskReschedule({
   reason: RescheduleReason;
   emphasis?: boolean;
   onChanged: () => void;
+  /** Called after a successful move so the board can keep a confirmation visible
+   *  even when this row disappears (e.g. the booking is no longer delayed). */
+  onMoved?: (moved: MovedBooking) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [offers, setOffers] = useState<Offer[] | null>(null);
@@ -106,7 +119,16 @@ export function DeskReschedule({
       return;
     }
     const result = data as { starts_at?: string; barber_id?: string } | null;
-    setMoved({ startsAt: result?.starts_at ?? startsAt ?? appt.startsAt, barberId: result?.barber_id ?? barberId ?? appt.barberId });
+    const next = { startsAt: result?.starts_at ?? startsAt ?? appt.startsAt, barberId: result?.barber_id ?? barberId ?? appt.barberId };
+    setMoved(next);
+    onMoved?.({
+      appointmentId: appt.id,
+      customerName: contact?.customerName ?? appt.displayName,
+      phone: contact?.phone ?? null,
+      passUrl: passUrl || null,
+      startsAt: next.startsAt,
+      barberName: barberName(next.barberId),
+    });
     setOffers(null);
     setPicking(false);
     onChanged();
@@ -256,6 +278,7 @@ export function DeskReschedule({
           durationMin={appt.durationMin}
           originalBarberId={appt.barberId}
           ignoreAppointmentId={appt.id}
+          initialDate={localDateString(new Date(appt.startsAt), settings.timezone)}
           busy={busy === "pick"}
           onConfirm={(slot, barberId) => void move(slot.startsAt, barberId, null, "pick")}
         />

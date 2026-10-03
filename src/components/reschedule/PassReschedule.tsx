@@ -5,7 +5,7 @@ import { CalendarClock, CircleCheck, Clock, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { cn, formatDuration } from "@/lib/format";
-import { formatClock, formatShortDateTime } from "@/lib/time";
+import { formatClock, formatShortDateTime, localDateString } from "@/lib/time";
 import type { ApiError, Barber, LiveAppointment, PassReschedule as PassRescheduleData, Shift, ShopSettings, TimeSlot } from "@/lib/types/domain";
 import { Button, Card } from "../ui/primitives";
 import { RescheduleSlotPicker } from "./RescheduleSlotPicker";
@@ -145,6 +145,7 @@ export function PassReschedule({
                 durationMin={appt.durationMin}
                 originalBarberId={appt.barberId}
                 ignoreAppointmentId={appt.id}
+          initialDate={localDateString(new Date(appt.startsAt), settings.timezone)}
                 busy={busy === "pick"}
                 onConfirm={(slot: TimeSlot, barberId: string) =>
                   void submit(
