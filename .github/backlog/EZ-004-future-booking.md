@@ -28,4 +28,4 @@ Customers can take a walk-in ticket **today for tomorrow's queue** (next open da
 - Their ETA starts counting at opening time. The estimator treats the day start as "now" for future `shop_day` tickets.
 - If an emergency closure (EZ-001) hits that day, these tickets are cancelled like any other waiting ticket.
 
-_Interpretation note: read from "joining today's queue for starting tomorrow". Confirm before implementation._
+_Confirmed by the shop owner on 2026-10-03._

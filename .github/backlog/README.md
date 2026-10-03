@@ -19,5 +19,5 @@ Suggested order: EZ-002 → EZ-001 → EZ-003 → EZ-005 → EZ-007 → EZ-008 �
 ## Decisions log
 - 2026-10-03 · EZ-001: emergency closure **cancels** waiting walk-in tickets.
 - 2026-10-03 · EZ-002: notifications stay **tap-to-send** WhatsApp/SMS links; the system **dynamically proposes** new dates/times for affected online bookings.
-- 2026-10-03 · EZ-004: "future booking" includes taking a ticket today for **tomorrow's** queue (interpretation, confirm).
+- 2026-10-03 · EZ-004: "future booking" includes taking a ticket today for **tomorrow's** queue (confirmed).
 - 2026-10-03 · EZ-006 / EZ-007: no changes to scope.
