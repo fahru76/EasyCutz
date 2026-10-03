@@ -7,7 +7,7 @@
 insert into public.shop_settings (id, shop_name, timezone, currency, slot_interval_min, booking_horizon_days,
                                   min_lead_min, hold_minutes, deposit_percent, min_deposit_cents, notify_lead_min,
                                   shop_phone, shop_address)
-values (1, 'EasyCutz', 'Asia/Kuala_Lumpur', 'myr', 15, 14, 30, 15, 20, 1000, 10,
+values (1, 'EasyCutz', 'Asia/Kuala_Lumpur', 'myr', 15, 14, 30, 30, 20, 1000, 10,
         '+60123456789', 'Kuala Lumpur, Malaysia')
 on conflict (id) do nothing;
 

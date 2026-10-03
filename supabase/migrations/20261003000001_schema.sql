@@ -36,7 +36,7 @@ create table public.shop_settings (
   slot_interval_min    integer     not null default 15 check (slot_interval_min between 5 and 60),
   booking_horizon_days integer     not null default 14 check (booking_horizon_days between 1 and 90),
   min_lead_min         integer     not null default 30 check (min_lead_min >= 0),
-  hold_minutes         integer     not null default 15 check (hold_minutes between 5 and 60),
+  hold_minutes         integer     not null default 30 check (hold_minutes between 30 and 1440), -- Stripe Checkout sessions live >= 30 min
   deposit_percent      integer     not null default 20 check (deposit_percent between 1 and 100),
   min_deposit_cents    integer     not null default 1000 check (min_deposit_cents >= 200),
   notify_lead_min      integer     not null default 10 check (notify_lead_min between 1 and 60),
