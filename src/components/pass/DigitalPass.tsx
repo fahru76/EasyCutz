@@ -22,7 +22,7 @@ import { useNow } from "@/hooks/use-now";
 import { formatReopen, overlapsClosure } from "@/lib/closure";
 import { cn, formatDuration, formatMoney, formatQueueLine } from "@/lib/format";
 import { whatsappLink } from "@/lib/notify";
-import { buildQueueSnapshot, type AppointmentEta } from "@/lib/queue";
+import { buildQueueSnapshot, chairBlocksForDay, type AppointmentEta } from "@/lib/queue";
 import { formatClock, formatLongDate, minutesBetween } from "@/lib/time";
 import {
   isShopClosed,
@@ -120,8 +120,16 @@ export function DigitalPass({
   }, [live.tickets, live.appointments, pass.booking]);
 
   const snapshot = useMemo(
-    () => buildQueueSnapshot({ now, barbers: live.barbers, tickets: live.tickets, appointments: live.appointments }),
-    [now, live.barbers, live.tickets, live.appointments],
+    () =>
+      buildQueueSnapshot({
+        now,
+        barbers: live.barbers,
+        tickets: live.tickets,
+        appointments: live.appointments,
+        blocks: chairBlocksForDay(now, settings.timezone, live.breaks, live.timeOff),
+        bufferMin: settings.bufferAfterServiceMin,
+      }),
+    [now, live.barbers, live.tickets, live.appointments, live.breaks, live.timeOff, settings.timezone, settings.bufferAfterServiceMin],
   );
   const eta = booking.kind === "ticket" ? snapshot.etas.get(booking.id) : undefined;
   const barberById = new Map(live.barbers.map((b) => [b.id, b]));

@@ -25,6 +25,7 @@ type PaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
 type BookingKind = "appointment" | "ticket";
 type StaffRole = "owner" | "host" | "barber";
 export type RescheduleReason = "delay" | "closure" | "barber_unavailable" | "early" | "manual";
+export type TimeOffKind = "time_off" | "break";
 export type ClosureReason = "power" | "weather" | "illness" | "emergency" | "other";
 export type TicketCancelReason = "customer" | "shop_closed" | "staff";
 export type ClosureImpactAction = "ticket_cancelled" | "appointment_affected" | "hold_released";
@@ -55,6 +56,7 @@ export type Database = {
           closed_until: string | null;
           closure_message: string | null;
           closure_reason: ClosureReason | null;
+          buffer_after_service_min: number;
           shop_phone: string | null;
           shop_address: string | null;
           updated_at: string;
@@ -78,6 +80,7 @@ export type Database = {
           closed_until?: string | null;
           closure_message?: string | null;
           closure_reason?: ClosureReason | null;
+          buffer_after_service_min?: number;
           shop_phone?: string | null;
           shop_address?: string | null;
           updated_at?: string;
@@ -210,6 +213,7 @@ export type Database = {
           starts_at: string;
           ends_at: string;
           reason: string;
+          kind: TimeOffKind;
         };
         Insert: {
           id?: string;
@@ -217,6 +221,7 @@ export type Database = {
           starts_at: string;
           ends_at: string;
           reason?: string;
+          kind?: TimeOffKind;
         };
         Update: Partial<Database["public"]["Tables"]["barber_time_off"]["Insert"]>;
         Relationships: [
@@ -516,9 +521,9 @@ export type Database = {
           id: string;
           changed_by: string | null;
           changed_at: string;
-          table_name: "services" | "addons" | "shop_settings";
+          table_name: "services" | "addons" | "shop_settings" | "barber_breaks";
           row_id: string;
-          action: "create" | "update" | "activate" | "deactivate" | "reorder";
+          action: "create" | "update" | "activate" | "deactivate" | "reorder" | "delete";
           before: Json | null;
           after: Json | null;
         };
@@ -526,13 +531,35 @@ export type Database = {
           id?: string;
           changed_by?: string | null;
           changed_at?: string;
-          table_name: "services" | "addons" | "shop_settings";
+          table_name: "services" | "addons" | "shop_settings" | "barber_breaks";
           row_id: string;
-          action: "create" | "update" | "activate" | "deactivate" | "reorder";
+          action: "create" | "update" | "activate" | "deactivate" | "reorder" | "delete";
           before?: Json | null;
           after?: Json | null;
         };
         Update: Partial<Database["public"]["Tables"]["catalog_changes"]["Insert"]>;
+        Relationships: [];
+      };
+      barber_breaks: {
+        Row: {
+          id: string;
+          barber_id: string;
+          weekday: number;
+          start_time: string;
+          end_time: string;
+          label: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          barber_id: string;
+          weekday: number;
+          start_time: string;
+          end_time: string;
+          label?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["barber_breaks"]["Insert"]>;
         Relationships: [];
       };
       shop_closures: {
@@ -685,6 +712,21 @@ export type Database = {
       desk_reopen_shop: { Args: never; Returns: Json };
       desk_mark_closure_notified: { Args: { p_impact_id: string }; Returns: undefined };
       desk_cancel_affected: { Args: { p_impact_id: string }; Returns: Json };
+      barber_back_at: { Args: { p_barber_id: string }; Returns: string | null };
+      desk_take_break: { Args: { p_barber_id: string; p_minutes: number }; Returns: string };
+      desk_end_break: { Args: { p_barber_id: string }; Returns: undefined };
+      admin_save_break: {
+        Args: {
+          p_id: string | null;
+          p_barber_id: string;
+          p_weekday: number;
+          p_start_time: string;
+          p_end_time: string;
+          p_label: string;
+        };
+        Returns: string;
+      };
+      admin_delete_break: { Args: { p_id: string }; Returns: undefined };
     };
     Enums: {
       service_category: ServiceCategory;

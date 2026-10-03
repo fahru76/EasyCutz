@@ -10,7 +10,7 @@ import { useNow } from "@/hooks/use-now";
 import { computeAmountDueNow, computeCartTotals } from "@/lib/cart";
 import { formatReopen } from "@/lib/closure";
 import { cn, formatMoney, formatQueueLine, formatWait, normalizePhone } from "@/lib/format";
-import { buildQueueSnapshot, estimateWalkIn } from "@/lib/queue";
+import { buildQueueSnapshot, chairBlocksForDay, estimateWalkIn } from "@/lib/queue";
 import { isShopClosed, type ApiError, type BookingMode, type Catalog, type CreateBookingResponse } from "@/lib/types/domain";
 import { BOOKING_STEPS, useBookingStore, type BookingStep } from "@/store/booking-store";
 import { SiteHeader } from "../ui/SiteHeader";
@@ -48,7 +48,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
   });
   const router = useRouter();
   const now = useNow(15_000);
-  const live = useLiveShop({ initialBarbers: catalog.barbers, timezone: settings.timezone });
+  const live = useLiveShop({ initialBarbers: catalog.barbers, initialBreaks: catalog.breaks, timezone: settings.timezone });
 
   const store = useBookingStore();
   const { step, mode, serviceIds, addonIds, barberId, slot, paymentOption, customer } = store;
@@ -58,8 +58,16 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
     [services, addons, serviceIds, addonIds],
   );
   const queueInput = useMemo(
-    () => ({ now, barbers: live.barbers, tickets: live.tickets, appointments: live.appointments }),
-    [now, live.barbers, live.tickets, live.appointments],
+    () => ({
+      now,
+      barbers: live.barbers,
+      tickets: live.tickets,
+      appointments: live.appointments,
+      // EZ-003: ETAs flow around breaks and keep the cleanup buffer
+      blocks: chairBlocksForDay(now, settings.timezone, live.breaks, live.timeOff),
+      bufferMin: settings.bufferAfterServiceMin,
+    }),
+    [now, live.barbers, live.tickets, live.appointments, live.breaks, live.timeOff, settings.timezone, settings.bufferAfterServiceMin],
   );
   const snapshot = useMemo(() => buildQueueSnapshot(queueInput), [queueInput]);
   const walkInEstimate = useMemo(
@@ -257,7 +265,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
             transition={{ duration: 0.22, ease: "easeOut" }}
           >
             {step === "services" && <ServiceMenu services={services} addons={addons} currency={settings.currency} />}
-            {step === "barber" && <BarberRoster barbers={live.barbers} snapshot={snapshot} mode={mode} />}
+            {step === "barber" && <BarberRoster barbers={live.barbers} snapshot={snapshot} mode={mode} timezone={settings.timezone} />}
             {step === "when" && (
               <section>
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-3">

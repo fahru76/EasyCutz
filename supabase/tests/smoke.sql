@@ -25,6 +25,12 @@ returns timestamptz language sql as $$
           || ' ' || p_hhmm)::timestamp at time zone public.shop_tz();
 $$;
 
+-- Earlier sections were written before EZ-003; they book fixed times that the
+-- seeded lunches would block. Breaks get their own section at the end.
+do $$ begin assert (select count(*) from barber_breaks) > 0, 'seed adds breaks'; end $$;
+create temp table t_seed_breaks as select * from barber_breaks;
+delete from barber_breaks;
+
 \echo '--- pricing'
 do $$
 declare r record; v_ids uuid[];
@@ -629,5 +635,145 @@ begin
                        ((shop_today() + 1)::text || ' 17:00')::timestamp at time zone shop_tz(),
                        ((shop_today() + 1)::text || ' 17:20')::timestamp at time zone shop_tz(), null) is distinct from 'shop_closed';
 end $$;
+
+\echo '--- EZ-003 barber breaks'
+-- restore the seeded breaks and check their shape
+insert into barber_breaks select * from t_seed_breaks;
+do $$
+begin
+  assert (select count(*) from barber_breaks where weekday = 5 and label = 'Friday prayers') = 4, 'friday prayers for every barber';
+  assert (select count(*) from barber_breaks where weekday = 1) = 0, 'no breaks on the closed Monday';
+end $$;
+
+do $$
+declare v_aiman uuid; v_cut uuid; v jsonb;
+begin
+  select id into v_aiman from barbers where slug = 'aiman';
+  select id into v_cut from services where slug = 'buzz-cut';   -- 20 min
+  -- seeded lunch: Aiman Tue 13:00-13:45
+  assert slot_conflict(v_aiman, pg_temp.next_tuesday_at('12:45'), pg_temp.next_tuesday_at('13:05'), null) = 'break', 'runs into lunch';
+  assert slot_conflict(v_aiman, pg_temp.next_tuesday_at('13:30'), pg_temp.next_tuesday_at('13:50'), null) = 'break', 'starts in lunch';
+  assert slot_conflict(v_aiman, pg_temp.next_tuesday_at('12:40'), pg_temp.next_tuesday_at('13:00'), null) is null, 'ends at lunch start';
+  assert slot_conflict(v_aiman, pg_temp.next_tuesday_at('13:45'), pg_temp.next_tuesday_at('13:55'), null) is null, 'starts at lunch end';
+  -- 'any' barber at 13:00 lands on someone who isn't at lunch
+  v := book_appointment(null, pg_temp.next_tuesday_at('13:15'), array[v_cut], '{}', 'Lunch Any', '+60199000001', null, 'cash_on_site');
+  assert (v->>'barber_id')::uuid <> v_aiman, v::text;
+end $$;
+-- a crafted request inside Aiman's lunch is refused
+select pg_temp.expect_error(
+  $$select book_appointment((select id from barbers where slug='aiman'), pg_temp.next_tuesday_at('13:15'), array[(select id from services where slug='buzz-cut')], '{}', 'Lunch Crash', '+60199000002', null, 'cash_on_site')$$,
+  'slot_unavailable');
+
+-- buffer after each service
+do $$
+declare v_bryan uuid; v_cut uuid; v jsonb;
+begin
+  select id into v_bryan from barbers where slug = 'bryan';
+  select id into v_cut from services where slug = 'buzz-cut';
+  update shop_settings set buffer_after_service_min = 10;
+  v := book_appointment(v_bryan, pg_temp.next_tuesday_at('17:00'), array[v_cut], '{}', 'Buffer One', '+60199000003', null, 'cash_on_site');
+  -- 17:00-17:20 + 10 min buffer -> 17:20 and 17:25 refused, 17:30 ok; 16:40 (ends 17:00 + buffer) refused
+  assert slot_conflict(v_bryan, pg_temp.next_tuesday_at('17:20'), pg_temp.next_tuesday_at('17:40'), null) = 'slot_unavailable';
+  assert slot_conflict(v_bryan, pg_temp.next_tuesday_at('17:30'), pg_temp.next_tuesday_at('17:50'), null) is null;
+  assert slot_conflict(v_bryan, pg_temp.next_tuesday_at('16:40'), pg_temp.next_tuesday_at('17:00'), null) = 'slot_unavailable';
+  assert slot_conflict(v_bryan, pg_temp.next_tuesday_at('16:30'), pg_temp.next_tuesday_at('16:50'), null) is null;
+  update shop_settings set buffer_after_service_min = 0;
+end $$;
+
+-- desk: take a break, call-next refused, back now
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
+select pg_temp.expect_error($$select desk_take_break((select id from barbers where slug='chandra'), 15)$$, 'forbidden');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select pg_temp.expect_error($$select desk_take_break((select id from barbers where slug='chandra'), 2)$$, 'invalid_value');
+select pg_temp.expect_error($$select desk_end_break((select id from barbers where slug='chandra'))$$, 'invalid_transition');
+do $$
+declare v_chandra uuid; v_back timestamptz;
+begin
+  select id into v_chandra from barbers where slug = 'chandra';
+  perform desk_set_duty(v_chandra, true);
+  v_back := desk_take_break(v_chandra, 15);
+  assert v_back between now() + interval '14 minutes' and now() + interval '16 minutes', v_back::text;
+  assert barber_back_at(v_chandra) = v_back;
+  begin
+    perform desk_take_break(v_chandra, 10);
+    raise exception 'expected already_on_break';
+  exception when others then assert sqlerrm = 'already_on_break', sqlerrm; end;
+  begin
+    perform desk_call_next(v_chandra);
+    raise exception 'expected on_break';
+  exception when others then assert sqlerrm = 'on_break', sqlerrm; end;
+end $$;
+-- separate statements: now() is fixed inside one transaction
+select desk_end_break((select id from barbers where slug='chandra'));
+do $$
+begin
+  assert barber_back_at((select id from barbers where slug='chandra')) is null, 'back now';
+  assert (select kind from barber_time_off where barber_id = (select id from barbers where slug='chandra') order by starts_at desc limit 1) = 'break';
+end $$;
+reset role;
+
+-- recurring break happening right now also blocks Call Next; walk-ins must fit before the next break
+do $$
+declare v_danial uuid; v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  select id into v_danial from barbers where slug = 'danial';
+  delete from barber_breaks where barber_id = v_danial;
+  if v_now_local < time '23:00' and v_now_local > time '00:05' then
+    insert into barber_breaks (barber_id, weekday, start_time, end_time, label)
+    values (v_danial, extract(dow from shop_today())::smallint, v_now_local - interval '5 minutes', v_now_local + interval '20 minutes', 'Test break');
+    assert barber_back_at(v_danial) is not null, 'recurring break counts as on break';
+    delete from barber_breaks where barber_id = v_danial;
+    insert into barber_breaks (barber_id, weekday, start_time, end_time, label)
+    values (v_danial, extract(dow from shop_today())::smallint, v_now_local + interval '25 minutes', v_now_local + interval '50 minutes', 'Soon break');
+    assert next_break_start(v_danial, now()) is not null, 'next break found';
+    update queue_tickets set status = 'cancelled' where status = 'waiting' and shop_day = shop_today(); -- isolate this check
+    perform issue_queue_ticket(v_danial, array[(select id from services where slug='signature-cut')], '{}', 'Break Fit', '+60199000004', null, 'cash_on_site');
+  end if;
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb; v_danial uuid; v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  select id into v_danial from barbers where slug = 'danial';
+  if v_now_local < time '23:00' and v_now_local > time '00:05' then
+    -- the 45-min walk-in for Danial can't fit before the break in ~25 min
+    v := desk_call_next(v_danial);
+    assert v->>'reason' = 'no_fit', coalesce(v::text, 'null');
+    assert v->>'next_label' = 'a break', v::text;
+  end if;
+end $$;
+reset role;
+
+-- owner edits breaks (audited); host cannot
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select pg_temp.expect_error($$select admin_save_break(null, (select id from barbers where slug='aiman'), 2, '16:00', '16:15', 'Tea')$$, 'forbidden');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000cc', false);
+select pg_temp.expect_error($$select admin_save_break(null, (select id from barbers where slug='aiman'), 2, '16:15', '16:00', 'Tea')$$, 'invalid_value');
+select pg_temp.expect_error($$select admin_save_break(null, (select id from barbers where slug='aiman'), 7, '16:00', '16:15', 'Tea')$$, 'invalid_value');
+do $$
+declare v_id uuid;
+begin
+  v_id := admin_save_break(null, (select id from barbers where slug='aiman'), 2, '16:00', '16:15', 'Tea');
+  perform admin_save_break(v_id, (select id from barbers where slug='aiman'), 2, '16:00', '16:20', 'Tea');
+  assert (select end_time from barber_breaks where id = v_id) = '16:20';
+  perform admin_delete_break(v_id);
+  assert not exists (select 1 from barber_breaks where id = v_id);
+  assert (select count(*) from catalog_changes where table_name = 'barber_breaks' and row_id = v_id::text) = 3, 'audited';
+  perform admin_update_settings('{"buffer_after_service_min": 5, "reschedule_cutoff_min": 60}'::jsonb);
+  assert (select buffer_after_service_min from shop_settings) = 5;
+  assert (select reschedule_cutoff_min from shop_settings) = 60;
+  perform admin_update_settings('{"buffer_after_service_min": 0, "reschedule_cutoff_min": 120}'::jsonb);
+end $$;
+select pg_temp.expect_error($$select admin_update_settings('{"buffer_after_service_min": 45}'::jsonb)$$, 'invalid_value');
+reset role;
+
+-- anon can read breaks (roster + estimator) but not write them
+set role anon;
+do $$ begin assert (select count(*) from barber_breaks) > 0, 'anon reads breaks'; end $$;
+select pg_temp.expect_error($$insert into barber_breaks (barber_id, weekday, start_time, end_time) values ((select id from barbers limit 1), 2, '10:00', '10:15')$$, 'permission denied for table barber_breaks');
+reset role;
 
 \echo 'ALL SMOKE TESTS PASSED'

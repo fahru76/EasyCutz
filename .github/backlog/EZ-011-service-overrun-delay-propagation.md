@@ -98,7 +98,7 @@ Either change must flow, **per barber**, to that barber's in-chair customer, cal
 
 **Still pending:**
 - learned per-barber durations (EZ-005);
-- shift-end overflow warning and breaks (EZ-003).
+- shift-end overflow warning (breaks delivered with EZ-003).
 
 ## Acceptance criteria
 - [ ] A cut running 12 min over shows "+12m" on the desk within one tick (≤ 15 s), without a reload.

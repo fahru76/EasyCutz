@@ -7,7 +7,7 @@ Tickets raised 2026-10-03. Each file is a GitHub-issue-ready ticket; publish the
 | --- | --- | --- | --- |
 | EZ-001 | Emergency shop open/close with impact handling — **done** | P1 | EZ-002 |
 | EZ-002 | Reschedule flow + reschedule notifications — **done** | P1 | — |
-| EZ-003 | Barber rest time (breaks, lunch, Friday prayers) | P1 | — |
+| EZ-003 | Barber rest time (breaks, lunch, Friday prayers) — **done** | P1 | — |
 | EZ-004 | Future booking — longer horizon, repeat booking, **join tomorrow's queue today** | P2 | EZ-001 (holidays) |
 | EZ-005 | 40-minute average cut time + learned durations for ETAs | P2 | — |
 | EZ-006 | Kids cut — pricing/age rules, eligible barbers, family ticket | P3 | — |

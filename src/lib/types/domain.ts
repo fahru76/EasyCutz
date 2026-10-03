@@ -2,9 +2,9 @@
  * Application-level (camelCase) domain model + row mappers.
  * Database rows (snake_case) never leak past the data layer / realtime hook.
  */
-import type { ClosureImpactAction, ClosureReason, DbEnum, TableRow, TicketCancelReason } from "./database";
+import type { ClosureImpactAction, ClosureReason, DbEnum, TableRow, TicketCancelReason, TimeOffKind } from "./database";
 
-export type { ClosureImpactAction, ClosureReason, TicketCancelReason };
+export type { ClosureImpactAction, ClosureReason, TicketCancelReason, TimeOffKind };
 
 export type ServiceCategory = DbEnum<"service_category">;
 export type TicketStatus = DbEnum<"ticket_status">;
@@ -47,6 +47,8 @@ export interface ShopSettings {
   closedUntil: string | null;
   closureMessage: string | null;
   closureReason: ClosureReason | null;
+  /** EZ-003: rest/cleanup minutes kept free after every booking. */
+  bufferAfterServiceMin: number;
   shopPhone: string | null;
   shopAddress: string | null;
 }
@@ -100,6 +102,21 @@ export interface TimeOff {
   barberId: string;
   startsAt: string;
   endsAt: string;
+  /** "break" = desk "Take a break"; "time_off" = planned absence. */
+  kind: TimeOffKind;
+  reason: string;
+}
+
+/** EZ-003: a recurring weekly break (shop-local times). */
+export interface Break {
+  id: string;
+  barberId: string;
+  /** 0 = Sunday … 6 = Saturday (shop-local) */
+  weekday: number;
+  /** minutes from local midnight */
+  startMin: number;
+  endMin: number;
+  label: string;
 }
 
 export interface Catalog {
@@ -108,6 +125,7 @@ export interface Catalog {
   addons: Addon[];
   barbers: Barber[];
   shifts: Shift[];
+  breaks: Break[];
   paymentsEnabled: boolean;
 }
 
@@ -315,6 +333,7 @@ export function mapSettings(row: TableRow<"shop_settings">): ShopSettings {
     closedUntil: row.closed_until,
     closureMessage: row.closure_message,
     closureReason: row.closure_reason,
+    bufferAfterServiceMin: row.buffer_after_service_min,
     shopPhone: row.shop_phone,
     shopAddress: row.shop_address,
   };
@@ -369,6 +388,21 @@ export function mapShift(row: TableRow<"barber_shifts">): Shift {
     startMin: parseTimeToMinutes(row.start_time),
     endMin: parseTimeToMinutes(row.end_time),
   };
+}
+
+export function mapBreak(row: TableRow<"barber_breaks">): Break {
+  return {
+    id: row.id,
+    barberId: row.barber_id,
+    weekday: row.weekday,
+    startMin: parseTimeToMinutes(row.start_time),
+    endMin: parseTimeToMinutes(row.end_time),
+    label: row.label,
+  };
+}
+
+export function mapTimeOff(row: Pick<TableRow<"barber_time_off">, "barber_id" | "starts_at" | "ends_at" | "kind" | "reason">): TimeOff {
+  return { barberId: row.barber_id, startsAt: row.starts_at, endsAt: row.ends_at, kind: row.kind, reason: row.reason };
 }
 
 export function mapTicket(row: TableRow<"queue_tickets">): LiveTicket {

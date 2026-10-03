@@ -12,6 +12,7 @@ import {
   mapAddon,
   mapAppointment,
   mapBarber,
+  mapBreak,
   mapService,
   mapSettings,
   mapShift,
@@ -38,14 +39,15 @@ export async function getSettings(): Promise<ShopSettings> {
 
 export async function getCatalog(): Promise<Catalog> {
   const db = getAdminSupabase();
-  const [settings, services, addons, barbers, shifts] = await Promise.all([
+  const [settings, services, addons, barbers, shifts, breaks] = await Promise.all([
     getSettings(),
     db.from("services").select("*").eq("is_active", true).order("sort_order").order("name"),
     db.from("addons").select("*").eq("is_active", true).order("sort_order").order("name"),
     db.from("barbers").select("*").eq("is_active", true).order("sort_order").order("display_name"),
     db.from("barber_shifts").select("*"),
+    db.from("barber_breaks").select("*").order("weekday").order("start_time"),
   ]);
-  for (const r of [services, addons, barbers, shifts]) if (r.error) throw fromDbError(r.error);
+  for (const r of [services, addons, barbers, shifts, breaks]) if (r.error) throw fromDbError(r.error);
 
   return {
     settings,
@@ -53,6 +55,7 @@ export async function getCatalog(): Promise<Catalog> {
     addons: (addons.data ?? []).map(mapAddon),
     barbers: (barbers.data ?? []).map(mapBarber),
     shifts: (shifts.data ?? []).map(mapShift),
+    breaks: (breaks.data ?? []).map(mapBreak),
     paymentsEnabled: serverEnv.paymentsEnabled,
   };
 }
@@ -98,7 +101,7 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
   }
 
   const { start, end } = localDayBounds(query.date, settings.timezone);
-  const [shifts, appts, timeOff, offers, closures] = await Promise.all([
+  const [shifts, appts, timeOff, offers, closures, breaks] = await Promise.all([
     db.from("barber_shifts").select("*").in("barber_id", barberIds),
     db
       .from("appointments")
@@ -121,18 +124,19 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
       .lt("starts_at", end.toISOString())
       .gt("ends_at", start.toISOString()),
     loadClosureWindows(start, end),
+    db.from("barber_breaks").select("*").in("barber_id", barberIds),
   ]);
-  for (const r of [shifts, appts, timeOff, offers]) if (r.error) throw fromDbError(r.error);
+  for (const r of [shifts, appts, timeOff, offers, breaks]) if (r.error) throw fromDbError(r.error);
 
   const busy: BusyInterval[] = [
     ...(appts.data ?? [])
       .filter((a) => BLOCKING_APPOINTMENT_STATUSES.has(a.status) && a.id !== query.ignore)
-      .map((a) => ({ barberId: a.barber_id, start: new Date(a.starts_at), end: new Date(a.ends_at) })),
+      .map((a) => ({ barberId: a.barber_id, start: new Date(a.starts_at), end: new Date(a.ends_at), booking: true })),
     ...(timeOff.data ?? []).map((t) => ({ barberId: t.barber_id, start: new Date(t.starts_at), end: new Date(t.ends_at) })),
     // EZ-002: times held for other customers' reschedule offers are not bookable
     ...(offers.data ?? [])
       .filter((o) => o.appointment_id !== query.ignore)
-      .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at) })),
+      .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at), booking: true })),
     // EZ-001: emergency closure blocks every chair
     ...closureBusy(closures, barberIds),
   ];
@@ -147,6 +151,8 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
     timezone: settings.timezone,
     slotIntervalMin: settings.slotIntervalMin,
     minLeadMin: settings.minLeadMin,
+    breaks: (breaks.data ?? []).map(mapBreak),
+    bufferMin: settings.bufferAfterServiceMin,
   });
 
   return { date: query.date, durationMin, slots };

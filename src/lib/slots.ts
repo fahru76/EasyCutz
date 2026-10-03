@@ -2,17 +2,46 @@
  * Slot engine for scheduled appointments.
  *
  * A slot is offered only when a barber can take the *entire* cumulative
- * duration of the cart inside one shift without touching another live booking
- * or time off. The database re-validates the same rules (book_appointment +
+ * duration of the cart inside one shift without touching another live booking,
+ * time off or a recurring break (EZ-003), keeping `bufferMin` free after every
+ * booking. The database re-validates the same rules (slot_conflict +
  * gist exclusion constraint), so this is a fast, honest preview.
  */
 import { addMinutes, localToUtc, weekdayOf } from "./time";
-import type { Shift, TimeSlot } from "./types/domain";
+import type { Break, Shift, TimeSlot } from "./types/domain";
 
 export interface BusyInterval {
   barberId: string;
   start: Date;
   end: Date;
+  /** A booking (appointment / held offer): the buffer applies on both sides of it. */
+  booking?: boolean;
+}
+
+/** A recurring break placed on a concrete date. */
+export interface BreakInterval {
+  barberId: string;
+  start: Date;
+  end: Date;
+  label: string;
+}
+
+/** Recurring breaks of `barberIds` on a shop-local date, as UTC intervals. */
+export function breaksOnDate(
+  date: string,
+  timezone: string,
+  breaks: readonly Break[],
+  barberIds?: readonly string[],
+): BreakInterval[] {
+  const weekday = weekdayOf(date);
+  return breaks
+    .filter((b) => b.weekday === weekday && (!barberIds || barberIds.includes(b.barberId)))
+    .map((b) => ({
+      barberId: b.barberId,
+      start: localToUtc(date, b.startMin, timezone),
+      end: localToUtc(date, b.endMin, timezone),
+      label: b.label,
+    }));
 }
 
 export interface SlotQuery {
@@ -27,6 +56,10 @@ export interface SlotQuery {
   timezone: string;
   slotIntervalMin: number;
   minLeadMin: number;
+  /** EZ-003: recurring weekly breaks. */
+  breaks?: readonly Break[];
+  /** EZ-003: minutes kept free after every booking. */
+  bufferMin?: number;
 }
 
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
@@ -38,12 +71,15 @@ export function generateSlots(q: SlotQuery): TimeSlot[] {
 
   const weekday = weekdayOf(q.date);
   const earliest = addMinutes(q.now, q.minLeadMin).getTime();
-  const busyByBarber = new Map<string, Array<{ start: number; end: number }>>();
-  for (const b of q.busy) {
-    const list = busyByBarber.get(b.barberId) ?? [];
-    list.push({ start: b.start.getTime(), end: b.end.getTime() });
-    busyByBarber.set(b.barberId, list);
-  }
+  const bufferMs = Math.max(0, q.bufferMin ?? 0) * 60000;
+  const busyByBarber = new Map<string, Array<{ start: number; end: number; booking: boolean }>>();
+  const addBusy = (barberId: string, start: Date, end: Date, booking: boolean) => {
+    const list = busyByBarber.get(barberId) ?? [];
+    list.push({ start: start.getTime(), end: end.getTime(), booking });
+    busyByBarber.set(barberId, list);
+  };
+  for (const b of q.busy) addBusy(b.barberId, b.start, b.end, b.booking === true);
+  for (const b of breaksOnDate(q.date, q.timezone, q.breaks ?? [], q.barberIds)) addBusy(b.barberId, b.start, b.end, false);
 
   const byMinute = new Map<number, { startsAt: Date; barberIds: string[] }>();
 
@@ -58,7 +94,12 @@ export function generateSlots(q: SlotQuery): TimeSlot[] {
         const startMs = start.getTime();
         if (startMs < earliest) continue;
         const endMs = startMs + q.durationMin * 60000;
-        if (busy.some((b) => overlaps(startMs, endMs, b.start, b.end))) continue;
+        const clash = busy.some((b) =>
+          b.booking
+            ? overlaps(startMs, endMs + bufferMs, b.start, b.end + bufferMs)
+            : overlaps(startMs, endMs, b.start, b.end),
+        );
+        if (clash) continue;
 
         const entry = byMinute.get(minute) ?? { startsAt: start, barberIds: [] };
         if (!entry.barberIds.includes(barberId)) entry.barberIds.push(barberId);

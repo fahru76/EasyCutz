@@ -5,6 +5,7 @@ import {
   Armchair,
   CalendarClock,
   CircleCheck,
+  Coffee,
   LogOut,
   Hourglass,
   Megaphone,
@@ -26,7 +27,7 @@ import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { cn, formatMoney, formatWait } from "@/lib/format";
 import { calledNowMessage, delayMessage, freeEarlyMessage, rescheduledMessage, smsLink, turnSoonMessage, whatsappLink } from "@/lib/notify";
-import { buildQueueSnapshot, type AppointmentEta, type QueueSnapshot } from "@/lib/queue";
+import { buildQueueSnapshot, chairBlocksForDay, type AppointmentEta, type QueueSnapshot } from "@/lib/queue";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { formatClock, formatShortDateTime } from "@/lib/time";
 import {
@@ -67,11 +68,21 @@ export function DeskBoard({
   const router = useRouter();
   // EZ-001: closure state (and owner edits) arrive live.
   const settings = useLiveSettings(initialSettings, "desk-settings");
-  const now = useNow(10_000);
+  const tick = useNow(10_000);
   const live = useLiveShop({ initialBarbers, timezone: settings.timezone, channelName: "desk-live" });
+  // Data refreshed after a desk action is newer than the 10-s tick: never judge it with a stale clock.
+  const now = live.lastUpdated && live.lastUpdated > tick ? live.lastUpdated : tick;
   const snapshot = useMemo(
-    () => buildQueueSnapshot({ now, barbers: live.barbers, tickets: live.tickets, appointments: live.appointments }),
-    [now, live.barbers, live.tickets, live.appointments],
+    () =>
+      buildQueueSnapshot({
+        now,
+        barbers: live.barbers,
+        tickets: live.tickets,
+        appointments: live.appointments,
+        blocks: chairBlocksForDay(now, settings.timezone, live.breaks, live.timeOff),
+        bufferMin: settings.bufferAfterServiceMin,
+      }),
+    [now, live.barbers, live.tickets, live.appointments, live.breaks, live.timeOff, settings.timezone, settings.bufferAfterServiceMin],
   );
 
   // ---- contacts (staff-only via RLS) ------------------------------------------
@@ -144,7 +155,9 @@ export function DeskBoard({
         const when = noFit.nextStartsAt ? ` (${formatClock(noFit.nextStartsAt, settings.timezone)})` : "";
         setToast({
           tone: "error",
-          text: `Next walk-in needs ${noFit.neededMin} min, only ${noFit.gapMin ?? 0} min free before ${noFit.nextLabel ?? "the next booking"}${when}. Seat the booked customer early or wait.`,
+          text: `Next walk-in needs ${noFit.neededMin} min, only ${noFit.gapMin ?? 0} min free before ${noFit.nextLabel ?? "the next booking"}${when}. ${
+            noFit.nextLabel === "a break" ? "Call them after the break." : "Seat the booked customer early or wait."
+          }`,
         });
       }
       return res;
@@ -164,6 +177,12 @@ export function DeskBoard({
       db.rpc("desk_transition", { p_kind: kind, p_id: id, p_action: action, p_barber_id: barberId ?? null }),
     );
   const checkIn = (token: string) => run(`checkin:${token}`, async () => db.rpc("desk_check_in", { p_token: token }), "Checked in");
+  // EZ-003: ad-hoc breaks from the desk
+  const takeBreak = (barber: Barber, minutes: number) =>
+    run(`break:${barber.id}`, async () => db.rpc("desk_take_break", { p_barber_id: barber.id, p_minutes: minutes }),
+      `${barber.displayName} is on a ${minutes}-min break`);
+  const endBreak = (barber: Barber) =>
+    run(`break:${barber.id}`, async () => db.rpc("desk_end_break", { p_barber_id: barber.id }), `${barber.displayName} is back`);
   const setDuty = (barber: Barber, on: boolean) =>
     run(`duty:${barber.id}`, async () => db.rpc("desk_set_duty", { p_barber_id: barber.id, p_on_duty: on }));
   const markNotified = (ticketId: string) =>
@@ -271,6 +290,11 @@ export function DeskBoard({
               onTransition={(kind, id, action) => void transition(kind, id, action, barber.id)}
               onAdjust={(booking, mode, minutes) => void setExpectedEnd(booking, mode, minutes)}
               onDuty={(on) => void setDuty(barber, on)}
+              deskBreak={live.timeOff.some(
+                (t) => t.barberId === barber.id && t.kind === "break" && new Date(t.startsAt) <= now && new Date(t.endsAt) > now,
+              )}
+              onTakeBreak={(minutes) => void takeBreak(barber, minutes)}
+              onEndBreak={() => void endBreak(barber)}
             />
           ))}
         </section>
@@ -432,6 +456,9 @@ function deskErrorText(code: string): string {
     not_found: "Booking not found.",
     barber_unavailable: "That barber isn't active.",
     shop_closed: "The shop is closed — reopen it first.",
+    on_break: "That barber is on a break — tap “Back now” first.",
+    already_on_break: "That barber is already on a break.",
+    invalid_value: "That value isn't allowed.",
   };
   return map[code] ?? `Action failed (${code}).`;
 }
@@ -476,6 +503,9 @@ function ChairCard({
   onTransition,
   onAdjust,
   onDuty,
+  deskBreak,
+  onTakeBreak,
+  onEndBreak,
 }: {
   barber: Barber;
   snapshot: QueueSnapshot;
@@ -493,8 +523,15 @@ function ChairCard({
   onTransition: (kind: BookingKind, id: string, action: Action) => void;
   onAdjust: (booking: LiveBooking, mode: "extend" | "finish_in", minutes: number) => void;
   onDuty: (on: boolean) => void;
+  /** The active break was started from the desk (can be ended early). */
+  deskBreak: boolean;
+  onTakeBreak: (minutes: number) => void;
+  onEndBreak: () => void;
 }) {
   const live = snapshot.barbers.get(barber.id);
+  const onBreak = live?.onBreak ?? null;
+  const nextBreak = live?.nextBreak ?? null;
+  const breakSoonMin = nextBreak ? Math.round((nextBreak.start.getTime() - now.getTime()) / 60000) : null;
   const current = live?.current ?? null;
   const called = live?.called ?? null;
   const over = live?.runningOverMin ?? 0;
@@ -558,11 +595,26 @@ function ChairCard({
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-            <p className="text-sm text-zinc-500">{barber.isOnDuty ? "Chair free" : "Off duty"}</p>
+            {barber.isOnDuty && onBreak ? (
+              <>
+                <Badge tone="rose">
+                  <Coffee className="size-3" /> {onBreak.label === "Break" ? "On break" : onBreak.label}
+                </Badge>
+                <p className="mt-1 font-mono text-sm text-zinc-300">back {formatClock(onBreak.until, settings.timezone)}</p>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-500">{barber.isOnDuty ? "Chair free" : "Off duty"}</p>
+            )}
             {barber.isOnDuty && freeGap !== null && nextEta && (
               <p className="text-xs text-emerald-300">
                 <Zap className="mr-1 inline size-3" />
                 Free early · {freeGap}m until {nextName || "next booking"} ({formatClock(nextEta.bookedStart, settings.timezone)})
+              </p>
+            )}
+            {barber.isOnDuty && !onBreak && nextBreak && breakSoonMin !== null && breakSoonMin <= 60 && (
+              <p className="text-xs text-zinc-400">
+                <Coffee className="mr-1 inline size-3" />
+                {nextBreak.label} at {formatClock(nextBreak.start, settings.timezone)}
               </p>
             )}
           </div>
@@ -699,15 +751,48 @@ function ChairCard({
             </div>
           </>
         )}
-        {!called && (
-          <Button
-            variant={current ? "secondary" : "primary"}
-            disabled={!barber.isOnDuty}
-            loading={pending === `call:${barber.id}`}
-            onClick={onCallNext}
-          >
-            <Megaphone className="size-4" /> Call Next
-          </Button>
+        {!called && onBreak && barber.isOnDuty && !current ? (
+          deskBreak ? (
+            <Button variant="secondary" loading={pending === `break:${barber.id}`} onClick={onEndBreak}>
+              <Coffee className="size-4" /> Back now
+            </Button>
+          ) : (
+            <Button variant="secondary" disabled>
+              <Coffee className="size-4" /> {onBreak.label} until {formatClock(onBreak.until, settings.timezone)}
+            </Button>
+          )
+        ) : (
+          !called && (
+            <Button
+              variant={current ? "secondary" : "primary"}
+              disabled={!barber.isOnDuty}
+              loading={pending === `call:${barber.id}`}
+              onClick={onCallNext}
+            >
+              <Megaphone className="size-4" /> Call Next
+            </Button>
+          )
+        )}
+        {!current && !called && !onBreak && barber.isOnDuty && (
+          <div className="grid grid-cols-[auto_1fr_1fr_1fr] items-center gap-1.5" aria-label={`${barber.displayName} take a break`}>
+            <span className="pr-1 text-[11px] text-zinc-500">
+              <Coffee className="mr-1 inline size-3" />
+              Break
+            </span>
+            {[10, 15, 30].map((m) => (
+              <Button
+                key={m}
+                variant="ghost"
+                size="sm"
+                className="border border-zinc-800 px-0 font-mono"
+                loading={pending === `break:${barber.id}`}
+                onClick={() => onTakeBreak(m)}
+                aria-label={`${barber.displayName} takes a ${m}-minute break`}
+              >
+                {m}m
+              </Button>
+            ))}
+          </div>
         )}
       </div>
     </Card>

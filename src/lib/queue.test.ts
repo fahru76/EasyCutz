@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barberStatusLabel, buildQueueSnapshot, estimateFinish, estimateWalkIn } from "./queue";
+import { barberStatusLabel, buildQueueSnapshot, chairBlocksForDay, estimateFinish, estimateWalkIn, type ChairBlock } from "./queue";
 import type { Barber, LiveAppointment, LiveTicket } from "./types/domain";
 
 const now = new Date("2026-10-06T06:00:00Z");
@@ -194,5 +194,80 @@ describe("EZ-011 service timing", () => {
     // busy chair -> no free gap reported
     snap = buildQueueSnapshot({ now, barbers: A, tickets: [overrunning(0)], appointments });
     expect(snap.barbers.get("a")?.freeGapMin).toBeNull();
+  });
+});
+
+describe("queue estimator with breaks (EZ-003)", () => {
+  // now = Tue 6 Oct 2026, 2:00 pm in Kuala Lumpur
+  const block = (barberId: string, from: number, to: number, label = "Break"): ChairBlock => ({
+    barberId,
+    start: new Date(now.getTime() + from * 60000),
+    end: new Date(now.getTime() + to * 60000),
+    label,
+  });
+
+  it("shows a barber on a break with the time they are back", () => {
+    const snap = buildQueueSnapshot({ now, barbers: [barber("a", 1)], tickets: [], appointments: [], blocks: [block("a", -5, 20, "Lunch")] });
+    const live = snap.barbers.get("a");
+    expect(live?.state).toBe("on_break");
+    expect(live?.onBreak?.label).toBe("Lunch");
+    expect(barberStatusLabel(live, "Asia/Kuala_Lumpur")).toMatch(/^On Break · back 2:20/);
+    expect(snap.nextWalkIn?.waitMin).toBe(20);
+  });
+
+  it("flows walk-ins around an upcoming break", () => {
+    const input = { now, barbers: [barber("a", 1)], tickets: [], appointments: [], blocks: [block("a", 10, 40)] };
+    expect(estimateWalkIn(input, 30, null)?.waitMin).toBe(40); // 30 min doesn't fit in the 10-min gap
+    expect(estimateWalkIn(input, 10, null)?.waitMin).toBe(0); // 10 min fits before the break
+    const snap = buildQueueSnapshot(input);
+    expect(snap.barbers.get("a")?.nextBreak?.start.toISOString()).toBe(minutesFromNow(10));
+  });
+
+  it("sends first-available walk-ins to the chair that is not on a break", () => {
+    const snap = buildQueueSnapshot({
+      now,
+      barbers: [barber("a", 1), barber("b", 2)],
+      tickets: [ticket(1)],
+      appointments: [],
+      blocks: [block("a", -1, 30)],
+    });
+    expect(snap.etas.get("t1")?.barberId).toBe("b");
+    expect(snap.etas.get("t1")?.waitMin).toBe(0);
+  });
+
+  it("pushes a booking that falls in a break and reports the delay", () => {
+    const snap = buildQueueSnapshot({
+      now,
+      barbers: [barber("a", 1)],
+      tickets: [],
+      appointments: [appt("p1", "a", 15, 20)],
+      blocks: [block("a", 10, 40)],
+    });
+    const eta = snap.appointmentEtas.get("p1");
+    expect(eta?.projectedStart.toISOString()).toBe(minutesFromNow(40));
+    expect(eta?.delayMin).toBe(25);
+    // a break before the booking means no "free early" gap is offered
+    expect(snap.barbers.get("a")?.freeGapMin).toBeNull();
+  });
+
+  it("keeps the buffer after each service", () => {
+    const tickets = [ticket(1, { status: "in_chair", barberId: "a", seatedAt: minutesAgo(15), durationMin: 30 }), ticket(2)];
+    const snap = buildQueueSnapshot({ now, barbers: [barber("a", 1)], tickets, appointments: [], bufferMin: 10 });
+    expect(snap.etas.get("t2")?.waitMin).toBe(25); // 15 left + 10 buffer
+    expect(snap.nextWalkIn?.waitMin).toBe(25 + 30 + 10);
+  });
+
+  it("builds today's chair blocks from recurring breaks and time off", () => {
+    const blocks = chairBlocksForDay(
+      now,
+      "Asia/Kuala_Lumpur",
+      [
+        { id: "x", barberId: "a", weekday: 2, startMin: 13 * 60, endMin: 13 * 60 + 45, label: "Lunch" },
+        { id: "y", barberId: "a", weekday: 5, startMin: 765, endMin: 870, label: "Friday prayers" },
+      ],
+      [{ barberId: "b", startsAt: minutesFromNow(0), endsAt: minutesFromNow(15), kind: "break", reason: "Break" }],
+    );
+    expect(blocks.map((b) => `${b.barberId}:${b.label}`)).toEqual(["a:Lunch", "b:Break"]);
+    expect(blocks[0]?.start.toISOString()).toBe("2026-10-06T05:00:00.000Z");
   });
 });

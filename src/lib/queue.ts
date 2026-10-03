@@ -13,11 +13,17 @@
  *   4. waiting walk-ins fill the gaps between projected appointments, on their
  *      preferred barber or on whichever eligible chair frees first.
  *
+ * EZ-003: breaks (recurring + desk "Take a break" + time off) are fixed blocks
+ * on a chair: nobody is projected into them, booked customers whose time falls
+ * in a break are pushed past it, and `bufferAfterServiceMin` is kept after
+ * every service.
+ *
  * Pure and deterministic: the customer pass, the home page and the desk all
  * derive the same numbers from the same realtime rows.
  */
-import { addMinutes, minutesBetween } from "./time";
-import type { Barber, LiveAppointment, LiveBooking, LiveTicket } from "./types/domain";
+import { breaksOnDate } from "./slots";
+import { addMinutes, formatClock, localDateString, minutesBetween } from "./time";
+import type { Barber, Break, LiveAppointment, LiveBooking, LiveTicket, TimeOff } from "./types/domain";
 
 /** Floor for "time left" on a service that is still within its expected end. */
 export const MIN_REMAINING_MIN = 1;
@@ -36,9 +42,40 @@ export interface QueueInput {
   barbers: readonly Barber[];
   tickets: readonly LiveTicket[];
   appointments: readonly LiveAppointment[];
+  /** EZ-003: breaks and time off as concrete intervals (see `chairBlocksForDay`). */
+  blocks?: readonly ChairBlock[];
+  /** EZ-003: rest/cleanup minutes kept free after each service. */
+  bufferMin?: number;
 }
 
-export type BarberLiveState = "available" | "in_chair" | "busy" | "off_duty";
+/** A period a barber is away from the chair (EZ-003). */
+export interface ChairBlock {
+  barberId: string;
+  start: Date;
+  end: Date;
+  label: string;
+}
+
+/** Today's recurring breaks plus time off/breaks overlapping today, as chair blocks. */
+export function chairBlocksForDay(
+  now: Date,
+  timezone: string,
+  breaks: readonly Break[],
+  timeOff: readonly TimeOff[],
+): ChairBlock[] {
+  const today = localDateString(now, timezone);
+  return [
+    ...breaksOnDate(today, timezone, breaks),
+    ...timeOff.map((t) => ({
+      barberId: t.barberId,
+      start: new Date(t.startsAt),
+      end: new Date(t.endsAt),
+      label: t.kind === "break" ? "Break" : t.reason || "Away",
+    })),
+  ];
+}
+
+export type BarberLiveState = "available" | "in_chair" | "busy" | "on_break" | "off_duty";
 
 export interface AppointmentEta {
   appointmentId: string;
@@ -68,6 +105,10 @@ export interface BarberLive {
   freeGapMin: number | null;
   /** True when a waiting walk-in for this chair fits inside `freeGapMin`. */
   gapFillable: boolean;
+  /** EZ-003: the break the barber is on right now. */
+  onBreak: { until: Date; label: string } | null;
+  /** EZ-003: the barber's next break today (not yet started). */
+  nextBreak: { start: Date; end: Date; label: string } | null;
 }
 
 export interface TicketEta {
@@ -135,8 +176,10 @@ interface Chair {
   sortOrder: number;
   /** When the chair is free after in-chair + called customers. */
   freeAt: number;
-  /** Projected appointment intervals walk-ins must flow around. */
+  /** Projected appointment intervals (+ buffer) and breaks walk-ins must flow around. */
   blocks: Array<{ start: number; end: number }>;
+  /** Breaks / time off only (fixed, never moved). */
+  breaks: Array<{ start: number; end: number }>;
   appointments: AppointmentEta[];
   busyNow: boolean;
 }
@@ -145,13 +188,42 @@ function isPendingHoldAlive(a: LiveAppointment, nowMs: number): boolean {
   return a.status !== "pending_payment" || (a.holdExpiresAt !== null && new Date(a.holdExpiresAt).getTime() > nowMs);
 }
 
+/** Moves `start` past any break overlapping [start, start + dur). */
+function pastBreaks(breaks: ReadonlyArray<{ start: number; end: number }>, start: number, durMs: number): number {
+  let t = start;
+  let moved = true;
+  while (moved) {
+    moved = false;
+    for (const b of breaks) {
+      if (t < b.end && b.start < t + durMs) {
+        t = b.end;
+        moved = true;
+      }
+    }
+  }
+  return t;
+}
+
 function buildChairs(input: QueueInput): Map<string, Chair> {
   const nowMs = input.now.getTime();
+  const bufferMs = Math.max(0, input.bufferMin ?? 0) * MIN;
   const chairs = new Map<string, Chair>();
 
   for (const b of input.barbers) {
     if (!b.isOnDuty) continue;
-    chairs.set(b.id, { barberId: b.id, sortOrder: b.sortOrder, freeAt: nowMs, blocks: [], appointments: [], busyNow: false });
+    const breaks = (input.blocks ?? [])
+      .filter((x) => x.barberId === b.id && x.end.getTime() > nowMs)
+      .map((x) => ({ start: x.start.getTime(), end: x.end.getTime() }))
+      .sort((x, y) => x.start - y.start);
+    chairs.set(b.id, {
+      barberId: b.id,
+      sortOrder: b.sortOrder,
+      freeAt: nowMs,
+      blocks: [...breaks],
+      breaks,
+      appointments: [],
+      busyNow: false,
+    });
   }
 
   // 1. in chair
@@ -163,7 +235,7 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
     const chair = b.barberId ? chairs.get(b.barberId) : undefined;
     if (!chair) continue;
     chair.busyNow = true;
-    chair.freeAt = Math.max(chair.freeAt, estimateFinish(b, nowMs).estimatedEnd);
+    chair.freeAt = Math.max(chair.freeAt, estimateFinish(b, nowMs).estimatedEnd + bufferMs);
   }
 
   // 2. already called for a chair
@@ -175,7 +247,7 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
     const chair = c.barberId ? chairs.get(c.barberId) : undefined;
     if (!chair) continue;
     chair.busyNow = true;
-    chair.freeAt += c.durationMin * MIN;
+    chair.freeAt += c.durationMin * MIN + bufferMs;
   }
 
   // 3. booked appointments, projected in order per barber (delays cascade)
@@ -194,9 +266,11 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
       const likelyNoShow = !a.checkedInAt && !chair.busyNow && booked < nowMs - LATE_GRACE_MIN * MIN;
       if (likelyNoShow) continue;
 
-      const chairReadyAt = Math.max(booked, cursor);
-      const projectedStart = Math.max(chairReadyAt, nowMs);
-      const projectedEnd = projectedStart + a.durationMin * MIN;
+      const durMs = a.durationMin * MIN;
+      // EZ-003: a booking that would run into a break waits until the barber is back.
+      const chairReadyAt = pastBreaks(chair.breaks, Math.max(booked, cursor), durMs);
+      const projectedStart = pastBreaks(chair.breaks, Math.max(chairReadyAt, nowMs), durMs);
+      const projectedEnd = projectedStart + durMs;
       const delayMin = Math.max(0, Math.round((chairReadyAt - booked) / MIN));
       chair.appointments.push({
         appointmentId: a.id,
@@ -205,8 +279,8 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
         projectedStart: new Date(projectedStart),
         delayMin,
       });
-      chair.blocks.push({ start: projectedStart, end: projectedEnd });
-      cursor = projectedEnd;
+      chair.blocks.push({ start: projectedStart, end: projectedEnd + bufferMs });
+      cursor = projectedEnd + bufferMs;
     }
   }
 
@@ -261,6 +335,7 @@ function competes(a: string | null, b: string | null, onDuty: ReadonlySet<string
 
 function simulate(input: QueueInput, extra?: { durationMin: number; preferredBarberId: string | null }) {
   const chairs = buildChairs(input);
+  const bufferMin = Math.max(0, input.bufferMin ?? 0);
   const onDuty = new Set(chairs.keys());
   const line = waitingLine(input.tickets);
   const etas = new Map<string, TicketEta>();
@@ -274,7 +349,7 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
   }
 
   line.forEach((ticket, index) => {
-    const pick = pickChair(candidateChairs(chairs, ticket.preferredBarberId), ticket.durationMin);
+    const pick = pickChair(candidateChairs(chairs, ticket.preferredBarberId), ticket.durationMin + bufferMin);
     const aheadCount = line
       .slice(0, index)
       .filter((other) => competes(other.preferredBarberId, ticket.preferredBarberId, onDuty)).length;
@@ -282,7 +357,7 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
       etas.set(ticket.id, { ticketId: ticket.id, position: index + 1, aheadCount, barberId: null, startsAt: null, waitMin: null });
       return;
     }
-    pick.chair.freeAt = pick.start + ticket.durationMin * MIN;
+    pick.chair.freeAt = pick.start + (ticket.durationMin + bufferMin) * MIN;
     etas.set(ticket.id, {
       ticketId: ticket.id,
       position: index + 1,
@@ -295,7 +370,7 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
 
   let extraEstimate: WalkInEstimate | null = null;
   if (extra) {
-    const pick = pickChair(candidateChairs(chairs, extra.preferredBarberId), extra.durationMin);
+    const pick = pickChair(candidateChairs(chairs, extra.preferredBarberId), extra.durationMin + bufferMin);
     if (pick && (!extra.preferredBarberId || onDuty.has(extra.preferredBarberId))) {
       extraEstimate = {
         barberId: pick.chair.barberId,
@@ -349,10 +424,26 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
     const chair = chairs.get(b.id);
     const nextAppointment = chair?.appointments[0] ?? null;
 
+    // EZ-003: on a break now / next break today
+    const myBlocks = (input.blocks ?? [])
+      .filter((x) => x.barberId === b.id && x.end.getTime() > nowMs)
+      .sort((x, y) => x.start.getTime() - y.start.getTime());
+    const activeBlocks = myBlocks.filter((x) => x.start.getTime() <= nowMs);
+    const onBreak = activeBlocks.length
+      ? {
+          until: new Date(Math.max(...activeBlocks.map((x) => x.end.getTime()))),
+          label: activeBlocks[0]!.label,
+        }
+      : null;
+    const upcomingBlock = myBlocks.find((x) => x.start.getTime() > nowMs) ?? null;
+    const nextBreak = upcomingBlock ? { start: upcomingBlock.start, end: upcomingBlock.end, label: upcomingBlock.label } : null;
+
     // Free-early gap: idle chair with time to spare before the next booking.
     let freeGapMin: number | null = null;
     let gapFillable = false;
-    if (chair && !current && !called && nextAppointment) {
+    // A break before the next booking means the chair isn't free in between.
+    const breakFirst = nextBreak !== null && nextAppointment !== null && nextBreak.start < nextAppointment.projectedStart;
+    if (chair && !current && !called && !onBreak && !breakFirst && nextAppointment) {
       const freeFrom = Math.max(nowMs, freeAtBeforeWalkIns.get(b.id) ?? nowMs);
       const gap = Math.floor((nextAppointment.projectedStart.getTime() - freeFrom) / MIN);
       if (gap > 0) {
@@ -367,6 +458,7 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
     let state: BarberLiveState;
     if (current) state = "in_chair";
     else if (!b.isOnDuty) state = "off_duty";
+    else if (onBreak) state = "on_break";
     else if (!called && nextFree !== null && nextFree.waitMin <= 1) state = "available";
     else state = "busy";
 
@@ -382,6 +474,8 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
       nextAppointment,
       freeGapMin,
       gapFillable,
+      onBreak,
+      nextBreak,
     });
   }
 
@@ -397,9 +491,11 @@ export function buildQueueSnapshot(input: QueueInput): QueueSnapshot {
 }
 
 /** Customer-facing label for the barber status badge. */
-export function barberStatusLabel(live: BarberLive | undefined): string {
+export function barberStatusLabel(live: BarberLive | undefined, timezone = "Asia/Kuala_Lumpur"): string {
   if (!live) return "Off Duty";
   switch (live.state) {
+    case "on_break":
+      return live.onBreak ? `On Break · back ${formatClock(live.onBreak.until, timezone)}` : "On Break";
     case "available":
       return "Available Now";
     case "in_chair":

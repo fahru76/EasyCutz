@@ -6,10 +6,14 @@ import { localDateString, localDayBounds } from "@/lib/time";
 import {
   mapAppointment,
   mapBarber,
+  mapBreak,
   mapTicket,
+  mapTimeOff,
   type Barber,
+  type Break,
   type LiveAppointment,
   type LiveTicket,
+  type TimeOff,
 } from "@/lib/types/domain";
 
 export type LiveStatus = "connecting" | "live" | "offline";
@@ -18,6 +22,10 @@ export interface LiveShop {
   barbers: Barber[];
   tickets: LiveTicket[];
   appointments: LiveAppointment[];
+  /** EZ-003: recurring weekly breaks. */
+  breaks: Break[];
+  /** EZ-003: time off / desk breaks overlapping today. */
+  timeOff: TimeOff[];
   status: LiveStatus;
   lastUpdated: Date | null;
   error: string | null;
@@ -30,17 +38,25 @@ const OFFLINE_POLL_MS = 15_000;
 
 /**
  * Today's live queue + bookings + roster, kept current by Supabase Realtime
- * (postgres_changes on queue_tickets, appointments and barbers).
+ * (postgres_changes on queue_tickets, appointments, barbers, barber_time_off
+ * and barber_breaks).
  *
  * Any change triggers a debounced refetch of the day's snapshot, which keeps
  * ordering and RLS semantics identical to the initial load and self-heals
  * after missed events. A slow safety poll covers flaky mobile connections.
  */
-export function useLiveShop(options: { initialBarbers: Barber[]; timezone: string; channelName?: string }): LiveShop {
-  const { initialBarbers, timezone, channelName = "easycutz-live" } = options;
+export function useLiveShop(options: {
+  initialBarbers: Barber[];
+  initialBreaks?: Break[];
+  timezone: string;
+  channelName?: string;
+}): LiveShop {
+  const { initialBarbers, initialBreaks = [], timezone, channelName = "easycutz-live" } = options;
   const [barbers, setBarbers] = useState<Barber[]>(initialBarbers);
   const [tickets, setTickets] = useState<LiveTicket[]>([]);
   const [appointments, setAppointments] = useState<LiveAppointment[]>([]);
+  const [breaks, setBreaks] = useState<Break[]>(initialBreaks);
+  const [timeOff, setTimeOff] = useState<TimeOff[]>([]);
   const [status, setStatus] = useState<LiveStatus>("connecting");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +69,7 @@ export function useLiveShop(options: { initialBarbers: Barber[]; timezone: strin
       const db = getBrowserSupabase();
       const today = localDateString(new Date(), timezone);
       const { start, end } = localDayBounds(today, timezone);
-      const [b, t, a] = await Promise.all([
+      const [b, t, a, br, off] = await Promise.all([
         db.from("barbers").select("*").eq("is_active", true).order("sort_order"),
         db.from("queue_tickets").select("*").eq("shop_day", today).order("ticket_number"),
         db
@@ -62,8 +78,14 @@ export function useLiveShop(options: { initialBarbers: Barber[]; timezone: strin
           .gte("starts_at", start.toISOString())
           .lt("starts_at", end.toISOString())
           .order("starts_at"),
+        db.from("barber_breaks").select("*"),
+        db
+          .from("barber_time_off")
+          .select("barber_id, starts_at, ends_at, kind, reason")
+          .lt("starts_at", end.toISOString())
+          .gt("ends_at", start.toISOString()),
       ]);
-      const firstError = b.error ?? t.error ?? a.error;
+      const firstError = b.error ?? t.error ?? a.error ?? br.error ?? off.error;
       if (firstError) {
         setError(firstError.message);
         return;
@@ -72,6 +94,8 @@ export function useLiveShop(options: { initialBarbers: Barber[]; timezone: strin
       setBarbers((b.data ?? []).map(mapBarber));
       setTickets((t.data ?? []).map(mapTicket));
       setAppointments((a.data ?? []).map(mapAppointment));
+      setBreaks((br.data ?? []).map(mapBreak));
+      setTimeOff((off.data ?? []).map(mapTimeOff));
       setLastUpdated(new Date());
     })();
     inflight.current = run;
@@ -101,6 +125,8 @@ export function useLiveShop(options: { initialBarbers: Barber[]; timezone: strin
       .on("postgres_changes", { event: "*", schema: "public", table: "queue_tickets" }, scheduleRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, scheduleRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "barbers" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "barber_time_off" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "barber_breaks" }, scheduleRefresh)
       .subscribe((state) => {
         if (state === "SUBSCRIBED") {
           setStatus("live");
@@ -130,5 +156,5 @@ export function useLiveShop(options: { initialBarbers: Barber[]; timezone: strin
     return () => window.clearInterval(id);
   }, [refresh, status]);
 
-  return { barbers, tickets, appointments, status, lastUpdated, error, refresh };
+  return { barbers, tickets, appointments, breaks, timeOff, status, lastUpdated, error, refresh };
 }

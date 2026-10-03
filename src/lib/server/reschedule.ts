@@ -6,7 +6,7 @@ import { generateSlots, type BusyInterval } from "@/lib/slots";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { addDays, localDateString, localDayBounds, zonedParts } from "@/lib/time";
 import type { Json, RescheduleReason } from "@/lib/types/database";
-import { BLOCKING_APPOINTMENT_STATUSES, mapShift } from "@/lib/types/domain";
+import { BLOCKING_APPOINTMENT_STATUSES, mapBreak, mapShift } from "@/lib/types/domain";
 import { fromDbError } from "./errors";
 import { closureBusy, getSettings, loadClosureWindows } from "./data";
 
@@ -47,7 +47,7 @@ export async function proposeRescheduleSlots(
   const rangeStart = localDayBounds(dates[0]!, tz).start;
   const rangeEnd = localDayBounds(dates[dates.length - 1]!, tz).end;
 
-  const [barbers, shifts, appts, timeOff, offers, closures] = await Promise.all([
+  const [barbers, shifts, appts, timeOff, offers, closures, breaks] = await Promise.all([
     db.from("barbers").select("id, is_on_duty").eq("is_active", true),
     db.from("barber_shifts").select("*"),
     db
@@ -68,18 +68,19 @@ export async function proposeRescheduleSlots(
       .lt("starts_at", rangeEnd.toISOString())
       .gt("ends_at", rangeStart.toISOString()),
     loadClosureWindows(rangeStart, rangeEnd),
+    db.from("barber_breaks").select("*"),
   ]);
-  for (const r of [barbers, shifts, appts, timeOff, offers]) if (r.error) throw fromDbError(r.error);
+  for (const r of [barbers, shifts, appts, timeOff, offers, breaks]) if (r.error) throw fromDbError(r.error);
 
   const busy: BusyInterval[] = [
     ...(appts.data ?? [])
       .filter((a) => a.id !== appt.id && BLOCKING_APPOINTMENT_STATUSES.has(a.status))
       .filter((a) => a.status !== "pending_payment" || (a.hold_expires_at !== null && new Date(a.hold_expires_at) > now))
-      .map((a) => ({ barberId: a.barber_id, start: new Date(a.starts_at), end: new Date(a.ends_at) })),
+      .map((a) => ({ barberId: a.barber_id, start: new Date(a.starts_at), end: new Date(a.ends_at), booking: true })),
     ...(timeOff.data ?? []).map((t) => ({ barberId: t.barber_id, start: new Date(t.starts_at), end: new Date(t.ends_at) })),
     ...(offers.data ?? [])
       .filter((o) => o.appointment_id !== appt.id)
-      .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at) })),
+      .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at), booking: true })),
     // EZ-001: no proposals inside an emergency closure
     ...closureBusy(closures, (barbers.data ?? []).map((b) => b.id)),
   ];
@@ -101,6 +102,8 @@ export async function proposeRescheduleSlots(
       // Desk-initiated, time-critical offers (running late / free early) may start soon:
       // the customer is usually already nearby. Other reasons follow the normal booking notice.
       minLeadMin: reason === "early" || reason === "delay" ? URGENT_LEAD_MIN : settings.minLeadMin,
+      breaks: (breaks.data ?? []).map(mapBreak),
+      bufferMin: settings.bufferAfterServiceMin,
     });
     for (const slot of slots) {
       for (const barberId of slot.availableBarberIds) {

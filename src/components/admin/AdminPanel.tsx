@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
-import { ArrowDown, ArrowLeft, ArrowUp, History, Pencil, Plus, Save, Scissors, Settings2, Sparkles, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Coffee, History, Pencil, Plus, Save, Scissors, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -17,8 +17,10 @@ type ServiceRow = TableRow<"services">;
 type AddonRow = TableRow<"addons">;
 type SettingsRow = TableRow<"shop_settings">;
 type ChangeRow = TableRow<"catalog_changes">;
+type BarberRow = Pick<TableRow<"barbers">, "id" | "display_name" | "sort_order">;
+type BreakRow = TableRow<"barber_breaks">;
 
-type Tab = "services" | "addons" | "fees" | "log";
+type Tab = "services" | "addons" | "breaks" | "fees" | "log";
 
 const ERROR_TEXT: Record<string, string> = {
   forbidden: "Only the shop owner can change the menu and fees.",
@@ -41,12 +43,16 @@ export function AdminPanel({
   addons,
   settings,
   changes,
+  barbers,
+  breaks,
   ownerName,
 }: {
   services: ServiceRow[];
   addons: AddonRow[];
   settings: SettingsRow;
   changes: ChangeRow[];
+  barbers: BarberRow[];
+  breaks: BreakRow[];
   ownerName: string;
 }) {
   const router = useRouter();
@@ -73,6 +79,7 @@ export function AdminPanel({
   const tabs: Array<{ id: Tab; label: string; icon: ReactNode }> = [
     { id: "services", label: "Services", icon: <Scissors className="size-4" /> },
     { id: "addons", label: "Add-ons", icon: <Sparkles className="size-4" /> },
+    { id: "breaks", label: "Breaks", icon: <Coffee className="size-4" /> },
     { id: "fees", label: "Fees & rules", icon: <Settings2 className="size-4" /> },
     { id: "log", label: "Change log", icon: <History className="size-4" /> },
   ];
@@ -125,6 +132,7 @@ export function AdminPanel({
 
         {tab === "services" && <ServicesTab services={services} currency={settings.currency} run={run} />}
         {tab === "addons" && <AddonsTab addons={addons} currency={settings.currency} run={run} />}
+        {tab === "breaks" && <BreaksTab barbers={barbers} breaks={breaks} run={run} />}
         {tab === "fees" && <FeesTab settings={settings} run={run} />}
         {tab === "log" && <LogTab changes={changes} timezone={settings.timezone} currency={settings.currency} />}
       </main>
@@ -522,6 +530,285 @@ function ItemForm({
 }
 
 // ---------------------------------------------------------------------------
+// Breaks (EZ-003)
+// ---------------------------------------------------------------------------
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const hhmm = (t: string) => t.slice(0, 5);
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+function BreaksTab({ barbers, breaks, run }: { barbers: BarberRow[]; breaks: BreakRow[]; run: Runner }) {
+  const db = getBrowserSupabase();
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const byBarber = (id: string) =>
+    breaks
+      .filter((b) => b.barber_id === id)
+      .sort((a, b) => a.weekday - b.weekday || a.start_time.localeCompare(b.start_time));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-sm text-zinc-400">
+          Recurring breaks are never offered as booking times, and live wait times flow around them. For a one-off
+          break, use the break buttons on the Quick-Desk.
+        </p>
+        {!adding && (
+          <Button size="sm" onClick={() => setAdding(true)}>
+            <Plus className="size-4" /> Add break
+          </Button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {adding && (
+          <BreakForm
+            barbers={barbers}
+            initial={null}
+            onCancel={() => setAdding(false)}
+            onSave={async (d) => {
+              for (const weekday of d.weekdays) {
+                const ok = await run(
+                  () =>
+                    db.rpc("admin_save_break", {
+                      p_id: null,
+                      p_barber_id: d.barberId,
+                      p_weekday: weekday,
+                      p_start_time: d.start,
+                      p_end_time: d.end,
+                      p_label: d.label,
+                    }),
+                  `Break added for ${d.weekdays.length} day${d.weekdays.length === 1 ? "" : "s"}`,
+                );
+                if (!ok) return;
+              }
+              setAdding(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {barbers.map((barber) => {
+        const rows = byBarber(barber.id);
+        return (
+          <Card key={barber.id} className="overflow-hidden">
+            <p className="border-b border-zinc-800/80 px-4 py-3 font-semibold">{barber.display_name}</p>
+            {rows.length === 0 && <p className="p-4 text-sm text-zinc-500">No recurring breaks.</p>}
+            <ul className="divide-y divide-zinc-800/70">
+              {rows.map((b) =>
+                editing === b.id ? (
+                  <li key={b.id} className="p-3">
+                    <BreakForm
+                      barbers={barbers}
+                      initial={b}
+                      onCancel={() => setEditing(null)}
+                      onSave={async (d) => {
+                        const ok = await run(
+                          () =>
+                            db.rpc("admin_save_break", {
+                              p_id: b.id,
+                              p_barber_id: d.barberId,
+                              p_weekday: d.weekdays[0] ?? b.weekday,
+                              p_start_time: d.start,
+                              p_end_time: d.end,
+                              p_label: d.label,
+                            }),
+                          "Break updated",
+                        );
+                        if (ok) setEditing(null);
+                      }}
+                    />
+                  </li>
+                ) : (
+                  <li key={b.id} className="flex items-center gap-3 px-4 py-3">
+                    <span className="w-10 font-mono text-xs font-semibold uppercase text-amber-400">{WEEKDAYS[b.weekday]}</span>
+                    <span className="font-mono text-sm text-zinc-200">
+                      {hhmm(b.start_time)}–{hhmm(b.end_time)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-400">{b.label}</span>
+                    <button
+                      type="button"
+                      aria-label={`Edit ${b.label} on ${WEEKDAYS[b.weekday]}`}
+                      onClick={() => setEditing(b.id)}
+                      className="text-zinc-500 hover:text-zinc-200"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                    <RemoveBreakButton
+                      label={`${b.label} on ${WEEKDAYS[b.weekday]}`}
+                      onConfirm={() => void run(() => db.rpc("admin_delete_break", { p_id: b.id }), "Break removed")}
+                    />
+                  </li>
+                ),
+              )}
+            </ul>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function RemoveBreakButton({ label, onConfirm }: { label: string; onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+  return armed ? (
+    <button type="button" onClick={onConfirm} className="text-xs font-semibold text-rose-300 hover:underline">
+      Remove?
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label={`Remove ${label}`}
+      onClick={() => setArmed(true)}
+      className="text-zinc-500 hover:text-rose-300"
+    >
+      <Trash2 className="size-4" />
+    </button>
+  );
+}
+
+interface BreakDraft {
+  barberId: string;
+  weekdays: number[];
+  start: string;
+  end: string;
+  label: string;
+}
+
+function BreakForm({
+  barbers,
+  initial,
+  onCancel,
+  onSave,
+}: {
+  barbers: BarberRow[];
+  initial: BreakRow | null;
+  onCancel: () => void;
+  onSave: (d: BreakDraft) => Promise<void>;
+}) {
+  const [d, setD] = useState<BreakDraft>(() =>
+    initial
+      ? {
+          barberId: initial.barber_id,
+          weekdays: [initial.weekday],
+          start: hhmm(initial.start_time),
+          end: hhmm(initial.end_time),
+          label: initial.label,
+        }
+      : { barberId: barbers[0]?.id ?? "", weekdays: [0, 2, 3, 4, 6], start: "13:00", end: "13:45", label: "Lunch" },
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const fid = initial?.id ?? "new";
+  const toggleDay = (day: number) =>
+    setD((x) => ({
+      ...x,
+      weekdays: initial
+        ? [day]
+        : x.weekdays.includes(day)
+          ? x.weekdays.filter((w) => w !== day)
+          : [...x.weekdays, day].sort((a, b) => a - b),
+    }));
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!d.barberId) return setError("Pick a barber.");
+    if (d.weekdays.length === 0) return setError("Pick at least one day.");
+    if (!TIME_RE.test(d.start) || !TIME_RE.test(d.end) || d.end <= d.start) {
+      return setError("The end time must be after the start time.");
+    }
+    if (!d.label.trim() || d.label.trim().length > 40) return setError("Give the break a short name (max 40 characters).");
+    setError(null);
+    setSaving(true);
+    await onSave({ ...d, label: d.label.trim() });
+    setSaving(false);
+  }
+
+  return (
+    <motion.form
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      onSubmit={submit}
+      className="space-y-4 rounded-2xl border border-amber-500/30 bg-zinc-900/60 p-4"
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Barber" htmlFor={`break-barber-${fid}`}>
+          <select
+            id={`break-barber-${fid}`}
+            className={inputClass}
+            value={d.barberId}
+            onChange={(e) => setD({ ...d, barberId: e.target.value })}
+          >
+            {barbers.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.display_name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Name" htmlFor={`break-label-${fid}`} hint="Shown to customers">
+          <input
+            id={`break-label-${fid}`}
+            className={inputClass}
+            value={d.label}
+            maxLength={40}
+            onChange={(e) => setD({ ...d, label: e.target.value })}
+          />
+        </Field>
+        <Field label="From" htmlFor={`break-start-${fid}`}>
+          <input
+            id={`break-start-${fid}`}
+            type="time"
+            step={300}
+            className={inputClass}
+            value={d.start}
+            onChange={(e) => setD({ ...d, start: e.target.value })}
+          />
+        </Field>
+        <Field label="Until" htmlFor={`break-end-${fid}`}>
+          <input
+            id={`break-end-${fid}`}
+            type="time"
+            step={300}
+            className={inputClass}
+            value={d.end}
+            onChange={(e) => setD({ ...d, end: e.target.value })}
+          />
+        </Field>
+      </div>
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium text-zinc-300">{initial ? "Day" : "Days"}</legend>
+        <div className="flex flex-wrap gap-1.5">
+          {WEEKDAYS.map((w, day) => (
+            <button
+              key={w}
+              type="button"
+              aria-pressed={d.weekdays.includes(day)}
+              onClick={() => toggleDay(day)}
+              className={cn(
+                "w-12 rounded-lg border py-1.5 text-xs font-semibold",
+                d.weekdays.includes(day) ? "border-amber-500 bg-amber-500 text-zinc-950" : "border-zinc-800 text-zinc-400",
+              )}
+            >
+              {w}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      {error && <p className="text-sm text-rose-300">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          <X className="size-4" /> Cancel
+        </Button>
+        <Button type="submit" loading={saving}>
+          <Save className="size-4" /> {initial ? "Save break" : "Add break"}
+        </Button>
+      </div>
+    </motion.form>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Fees & rules
 // ---------------------------------------------------------------------------
 const NUMERIC_FIELDS: Array<{ key: keyof SettingsRow; label: string; hint: string; min: number; max: number }> = [
@@ -532,6 +819,9 @@ const NUMERIC_FIELDS: Array<{ key: keyof SettingsRow; label: string; hint: strin
   { key: "notify_lead_min", label: "Turn-soon alert (minutes)", hint: "When the pass alerts the customer", min: 1, max: 60 },
   { key: "delay_notify_min", label: "Delay notice from (minutes)", hint: "Desk prompts a delay message", min: 1, max: 120 },
   { key: "early_offer_min", label: "Invite-early gap (minutes)", hint: "Free gap before suggesting early arrival", min: 1, max: 120 },
+  { key: "reschedule_cutoff_min", label: "Self-reschedule cutoff (minutes)", hint: "Customers can move a booking until this long before", min: 0, max: 10080 },
+  { key: "offer_hold_hours", label: "Hold proposed times (hours)", hint: "How long new times are held for a customer", min: 1, max: 168 },
+  { key: "buffer_after_service_min", label: "Rest after each booking (minutes)", hint: "Kept free after every booking (0 = none)", min: 0, max: 30 },
 ];
 const SLOT_INTERVALS = [5, 10, 15, 20, 30, 60];
 
@@ -699,6 +989,8 @@ const WATCHED_KEYS = [
   "name", "price_cents", "duration_min", "is_active", "is_popular", "category",
   "deposit_percent", "min_deposit_cents", "hold_minutes", "booking_horizon_days", "min_lead_min",
   "slot_interval_min", "notify_lead_min", "delay_notify_min", "early_offer_min", "shop_name", "shop_phone", "shop_address",
+  "reschedule_cutoff_min", "offer_hold_hours", "buffer_after_service_min",
+  "weekday", "start_time", "end_time", "label",
 ];
 
 function describeValue(key: string, value: unknown, currency: string): string {
@@ -718,14 +1010,14 @@ function LogTab({ changes, timezone, currency }: { changes: ChangeRow[]; timezon
       {changes.map((c) => {
         const before = (c.before ?? {}) as Record<string, unknown>;
         const after = (c.after ?? {}) as Record<string, unknown>;
-        const name = (after.name ?? before.name ?? (c.table_name === "shop_settings" ? "Fees & rules" : c.table_name)) as string;
+        const name = (after.name ?? before.name ?? after.label ?? before.label ?? (c.table_name === "shop_settings" ? "Fees & rules" : c.table_name)) as string;
         const diffs = WATCHED_KEYS.filter((k) => k in after && JSON.stringify(before[k]) !== JSON.stringify(after[k]) && c.action !== "create");
         return (
           <div key={c.id} className="p-4 text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={c.action === "deactivate" ? "rose" : c.action === "create" ? "emerald" : "zinc"}>{c.action}</Badge>
+              <Badge tone={c.action === "deactivate" || c.action === "delete" ? "rose" : c.action === "create" ? "emerald" : "zinc"}>{c.action}</Badge>
               <span className="font-semibold text-zinc-100">{name}</span>
-              <span className="text-xs text-zinc-500">{c.table_name === "shop_settings" ? "settings" : c.table_name}</span>
+              <span className="text-xs text-zinc-500">{c.table_name === "shop_settings" ? "settings" : c.table_name === "barber_breaks" ? "breaks" : c.table_name}</span>
               <span className="ml-auto font-mono text-xs text-zinc-500">{fmt.format(new Date(c.changed_at))}</span>
             </div>
             {diffs.length > 0 && (

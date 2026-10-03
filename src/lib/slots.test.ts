@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildTimeGrid, generateSlots, isWorkingDay } from "./slots";
-import type { Shift } from "./types/domain";
+import { breaksOnDate, buildTimeGrid, generateSlots, isWorkingDay } from "./slots";
+import type { Break, Shift } from "./types/domain";
 
 const KL = "Asia/Kuala_Lumpur";
 // Tuesday 2026-10-06, shifts 10:00-13:00
@@ -78,5 +78,47 @@ describe("buildTimeGrid", () => {
     const grid = buildTimeGrid([slot(780), slot(810)], 30);
     expect(grid[0]).toEqual({ part: "morning", available: 0, rows: [] });
     expect(grid[1]?.rows[0]?.cells.map((c) => c.minute)).toEqual([0, 30]);
+  });
+});
+
+describe("generateSlots with breaks and buffer (EZ-003)", () => {
+  // Tuesday lunch for "a" 11:30-12:00, Friday-only break for "b" (must not apply on Tuesday)
+  const breaks: Break[] = [
+    { id: "l1", barberId: "a", weekday: 2, startMin: 690, endMin: 720, label: "Lunch" },
+    { id: "f1", barberId: "b", weekday: 5, startMin: 690, endMin: 720, label: "Friday prayers" },
+  ];
+
+  it("never offers a slot that overlaps a recurring break", () => {
+    const starts = generateSlots({ ...base, durationMin: 30, barberIds: ["a"], busy: [], breaks }).map((s) => s.startsAt);
+    expect(starts).toContain(at("11:00").toISOString()); // 11:00-11:30 ends at break start
+    expect(starts).not.toContain(at("11:15").toISOString()); // runs into lunch
+    expect(starts).not.toContain(at("11:30").toISOString());
+    expect(starts).not.toContain(at("11:45").toISOString());
+    expect(starts).toContain(at("12:00").toISOString()); // starts at break end
+  });
+
+  it("applies breaks only on their weekday and only to their barber", () => {
+    const slots = generateSlots({ ...base, durationMin: 30, barberIds: ["a", "b"], busy: [], breaks });
+    const at1130 = slots.find((s) => s.startsAt === at("11:30").toISOString());
+    expect(at1130?.availableBarberIds).toEqual(["b"]);
+  });
+
+  it("keeps the buffer free after (and before) other bookings, but not around time off", () => {
+    const busy = [
+      { barberId: "a", start: at("11:00"), end: at("11:30"), booking: true },
+      { barberId: "a", start: at("12:30"), end: at("13:00") },
+    ];
+    const starts = generateSlots({ ...base, durationMin: 30, barberIds: ["a"], busy, bufferMin: 10 }).map((s) => s.startsAt);
+    expect(starts).not.toContain(at("10:30").toISOString()); // 10:30-11:00 +10 buffer hits 11:00
+    expect(starts).toContain(at("10:15").toISOString()); // 10:15-10:45 +10 = 10:55
+    expect(starts).not.toContain(at("11:30").toISOString()); // inside the 11:30-11:40 buffer
+    expect(starts).toContain(at("11:45").toISOString());
+    expect(starts).toContain(at("12:00").toISOString()); // 12:00-12:30 next to time off: no buffer needed
+  });
+
+  it("places breaks on a concrete date in the shop timezone", () => {
+    const [lunch] = breaksOnDate("2026-10-06", KL, breaks);
+    expect(lunch?.start.toISOString()).toBe(at("11:30").toISOString());
+    expect(breaksOnDate("2026-10-09", KL, breaks).map((b) => b.label)).toEqual(["Friday prayers"]);
   });
 });

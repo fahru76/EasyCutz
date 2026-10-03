@@ -56,3 +56,23 @@ select b.id, d.weekday, s.start_time, s.end_time
    and not exists (
      select 1 from public.barber_shifts x where x.barber_id = b.id and x.weekday = d.weekday
    );
+
+-- Recurring breaks (EZ-003). Lunches are staggered so the shop never empties;
+-- Friday (weekday 5) has a shared prayer break instead of lunch. Edit in /desk/admin.
+insert into public.barber_breaks (barber_id, weekday, start_time, end_time, label)
+select b.id, d.weekday, s.start_time, s.end_time, 'Lunch'
+  from public.barbers b
+  cross join lateral (values
+    ('aiman',   time '13:00', time '13:45'),
+    ('bryan',   time '14:00', time '14:45'),
+    ('chandra', time '13:45', time '14:30'),
+    ('danial',  time '15:00', time '15:45')
+  ) as s(slug, start_time, end_time)
+  cross join lateral (values (0), (2), (3), (4), (6)) as d(weekday)
+ where b.slug = s.slug
+   and not exists (select 1 from public.barber_breaks x where x.barber_id = b.id and x.weekday = d.weekday);
+
+insert into public.barber_breaks (barber_id, weekday, start_time, end_time, label)
+select b.id, 5, time '12:45', time '14:30', 'Friday prayers'
+  from public.barbers b
+ where not exists (select 1 from public.barber_breaks x where x.barber_id = b.id and x.weekday = 5);

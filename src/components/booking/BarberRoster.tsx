@@ -16,6 +16,8 @@ function toneFor(state: string | undefined): BadgeTone {
       return "amber";
     case "busy":
       return "sky";
+    case "on_break":
+      return "rose";
     default:
       return "zinc";
   }
@@ -25,10 +27,12 @@ export function BarberRoster({
   barbers,
   snapshot,
   mode,
+  timezone,
 }: {
   barbers: Barber[];
   snapshot: QueueSnapshot;
   mode: BookingMode;
+  timezone: string;
 }) {
   const barberId = useBookingStore((s) => s.barberId);
   const setBarber = useBookingStore((s) => s.setBarber);
@@ -110,7 +114,7 @@ export function BarberRoster({
               </p>
               <div className="mt-3">
                 <Badge tone={toneFor(offDuty && live?.state !== "in_chair" ? "off_duty" : live?.state)} pulse={!offDuty} mono>
-                  {offDuty && live?.state !== "in_chair" ? "Off Duty" : barberStatusLabel(live)}
+                  {offDuty && live?.state !== "in_chair" ? "Off Duty" : barberStatusLabel(live, timezone)}
                 </Badge>
               </div>
               {mode === "scheduled" && offDuty && (
