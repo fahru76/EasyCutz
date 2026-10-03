@@ -15,5 +15,5 @@ A **Kids Cut (under 12)** service already exists in the seed (`kids-cut`, 30 min
 - [ ] Kids cut only bookable with eligible barbers (slot + SQL validation).
 - [ ] Family ticket counts as 2 services in queue ETA.
 
-## Open questions
-- Final price/age limit? Is a parent+kid combo wanted?
+## Decision (2026-10-03)
+- **No changes** to the kids cut definition. Keep the seeded Kids Cut (under 12), 30 min, RM 30, and the ticket scope as written.

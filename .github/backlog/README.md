@@ -8,10 +8,16 @@ Tickets raised 2026-10-03. Each file is a GitHub-issue-ready ticket; publish the
 | EZ-001 | Emergency shop open/close with impact handling | P1 | EZ-002 |
 | EZ-002 | Reschedule flow + reschedule notifications | P1 | — |
 | EZ-003 | Barber rest time (breaks, lunch, Friday prayers) | P1 | — |
-| EZ-004 | Future booking — longer horizon, repeat booking, book-ahead queue | P2 | EZ-001 (holidays) |
+| EZ-004 | Future booking — longer horizon, repeat booking, **join tomorrow's queue today** | P2 | EZ-001 (holidays) |
 | EZ-005 | 40-minute average cut time + learned durations for ETAs | P2 | — |
 | EZ-006 | Kids cut — pricing/age rules, eligible barbers, family ticket | P3 | — |
 | EZ-007 | Special services — hair dye / colour & chemical | P2 | — |
 | EZ-008 | Hairstyle preference & reference photos | P2 | — |
 
 Suggested order: EZ-002 → EZ-001 → EZ-003 → EZ-005 → EZ-007 → EZ-008 → EZ-004 → EZ-006.
+
+## Decisions log
+- 2026-10-03 · EZ-001: emergency closure **cancels** waiting walk-in tickets.
+- 2026-10-03 · EZ-002: notifications stay **tap-to-send** WhatsApp/SMS links; the system **dynamically proposes** new dates/times for affected online bookings.
+- 2026-10-03 · EZ-004: "future booking" includes taking a ticket today for **tomorrow's** queue (interpretation, confirm).
+- 2026-10-03 · EZ-006 / EZ-007: no changes to scope.

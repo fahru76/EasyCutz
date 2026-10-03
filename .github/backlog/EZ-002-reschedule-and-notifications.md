@@ -15,14 +15,27 @@ Customers and staff can only **cancel**; there is no way to move a booking. When
 - **Desk-initiated reschedule**: pick new time/barber or send the customer a "pick a new time" link (pass page opens directly in reschedule mode).
 - `booking_events` audit table (created, rescheduled_from/to, cancelled, notified) shown on desk + pass.
 - Message templates in `notify.ts`: `rescheduledMessage`, `pleaseRescheduleMessage`, `closureMessage` (EZ-001), with the pass link.
-- Optional phase 2: automated sending via WhatsApp Business Cloud API or Twilio from a Supabase Edge Function triggered by `booking_events` (needs business account + credentials — decision required).
+- **Delivery (decided 2026-10-03): tap-to-send links only.** The host taps WhatsApp/SMS deep links on the desk (as today). No paid WhatsApp Business / SMS API. `booking_events` records when a message link was opened (`notified_at`) so the desk shows who has and hasn't been contacted.
+
+### Dynamic reschedule proposals (decided 2026-10-03)
+When an online booking is affected (shop closure EZ-001, barber sick/time off, desk "needs reschedule"), the system **proposes new dates/times automatically**:
+- Function `propose_reschedule_slots(appointment_id, limit = 3)` reuses the slot engine with the booking's exact services and duration.
+- Ranking: (1) same barber, same day, nearest time after the original; (2) same barber, next open days, closest to the original time of day; (3) any eligible barber, same ranking. Skip closures, breaks (EZ-003) and slots inside the minimum lead time.
+- Proposals are stored as **soft holds** in `reschedule_offers (appointment_id, starts_at, barber_id, expires_at)`, default 24 h. They block those slots from other customers until they expire or the customer picks one. Expired offers are released by the same sweeper as `expire_stale_holds`.
+- The message link opens `/pass/<token>?reschedule=1` showing the 3 proposals as one-tap buttons, plus "Pick another time" (the full slot picker).
+- Accepting a proposal calls `reschedule_appointment`. The other offers are released and the deposit carries over.
+- If no reply arrives before the offers expire, the booking stays in "Needs reschedule" on the desk; nothing is auto-cancelled.
 
 ## Acceptance criteria
 - [ ] Customer can reschedule from the pass to any slot the engine offers; old window frees immediately; pass updates live.
 - [ ] Concurrent reschedules to the same slot: exactly one wins, the other gets `slot_unavailable`.
 - [ ] Deposit stays attached; no new Stripe session for an already-paid booking.
-- [ ] Desk can send a reschedule request in one tap (WhatsApp/SMS deep link).
+- [ ] Desk can send a reschedule request in one tap (WhatsApp/SMS deep link) that includes the proposed times.
+- [ ] For an affected booking, 3 proposals are generated that respect closures, breaks, shifts and duration (unit tests on the ranking).
+- [ ] Proposed slots are held and can't be booked by others until they expire (SQL test).
+- [ ] Customer accepts a proposal in one tap from the pass; the old slot and the other offers are released.
 - [ ] Unit + SQL tests for reschedule rules (cutoff, past time, other barber, overlap).
 
-## Open questions
-- Automated messages (needs a paid WhatsApp Business / SMS provider) or keep host-tapped links?
+## Decisions
+- 2026-10-03: messages go out via the existing **tap-to-send** WhatsApp/SMS links.
+- 2026-10-03: the system **dynamically proposes** new dates/times for affected online bookings.

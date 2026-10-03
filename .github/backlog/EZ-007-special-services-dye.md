@@ -19,5 +19,5 @@ Colour, bleach, perm/keratin are long (90–180 min), priced by hair length, and
 - [ ] Deposit enforced server-side (`book_appointment` rejects `cash_on_site`).
 - [ ] Desk shows the questionnaire on the booking.
 
-## Open questions
-- Menu & prices for colour services? Need patch-test 48 h before first colour?
+## Decision (2026-10-03)
+- **No changes** to the ticket scope. Colour menu and prices are entered by the shop through the catalog. Patch-test rule: not required unless the shop asks later.
