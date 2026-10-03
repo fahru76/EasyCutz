@@ -64,3 +64,57 @@ export function freeEarlyMessage(args: {
     `we'll seat you straight away. If not, no worries: your ${args.bookedTime} booking stays as is. Live pass: ${args.passUrl}`
   );
 }
+
+const REASON_TEXT: Record<string, string> = {
+  delay: "your barber is running late today",
+  closure: "the shop has to close at your booking time",
+  barber_unavailable: "your barber is unavailable at your booking time",
+  manual: "we need to move your booking",
+  early: "a chair has opened up earlier",
+};
+
+/** EZ-002: list the held times and link to the pass where the customer taps one. */
+export function rescheduleOffersMessage(args: {
+  shopName: string;
+  customerName: string;
+  reason: string;
+  options: string[];
+  holdUntil: string;
+  passUrl: string;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  const list = args.options.map((o, i) => `${i + 1}) ${o}`).join("\n");
+  const why = REASON_TEXT[args.reason] ?? REASON_TEXT.manual;
+  return (
+    `Hi ${first}, it's ${args.shopName}. Sorry — ${why}. We're holding these times for you:\n${list}\n` +
+    `Tap to choose (held until ${args.holdUntil}): ${args.passUrl}?reschedule=1`
+  );
+}
+
+/** EZ-011 + EZ-002: an earlier slot is held for the customer. */
+export function earlierSlotMessage(args: {
+  shopName: string;
+  customerName: string;
+  barberName: string;
+  newTime: string;
+  bookedTime: string;
+  passUrl: string;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  return (
+    `Hi ${first}, it's ${args.shopName}. ${args.barberName} is free early — we can take you at ${args.newTime} ` +
+    `instead of ${args.bookedTime}. Tap to move: ${args.passUrl}?reschedule=1 (or ignore this to keep ${args.bookedTime}).`
+  );
+}
+
+/** EZ-002: confirmation after the desk moved a booking. */
+export function rescheduledMessage(args: {
+  shopName: string;
+  customerName: string;
+  barberName: string;
+  newTime: string;
+  passUrl: string;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  return `Hi ${first}, your ${args.shopName} booking is now ${args.newTime} with ${args.barberName}. Live pass: ${args.passUrl}`;
+}

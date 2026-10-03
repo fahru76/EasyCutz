@@ -21,7 +21,8 @@ import { cn, formatDuration, formatMoney, formatQueueLine } from "@/lib/format";
 import { whatsappLink } from "@/lib/notify";
 import { buildQueueSnapshot, type AppointmentEta } from "@/lib/queue";
 import { formatClock, formatLongDate, minutesBetween } from "@/lib/time";
-import type { ApiError, Barber, LiveAppointment, LiveBooking, LiveTicket, PassData, ShopSettings } from "@/lib/types/domain";
+import type { ApiError, Barber, LiveAppointment, LiveBooking, LiveTicket, PassData, Shift, ShopSettings } from "@/lib/types/domain";
+import { PassReschedule } from "../reschedule/PassReschedule";
 import { SiteHeader } from "../ui/SiteHeader";
 import { Avatar, Badge, Button, type BadgeTone } from "../ui/primitives";
 
@@ -76,6 +77,8 @@ export function DigitalPass({
   passUrl,
   paymentParam,
   paymentsEnabled,
+  shifts,
+  openReschedule,
 }: {
   pass: PassData;
   settings: ShopSettings;
@@ -84,6 +87,8 @@ export function DigitalPass({
   passUrl: string;
   paymentParam: "success" | "cancelled" | null;
   paymentsEnabled: boolean;
+  shifts: Shift[];
+  openReschedule: boolean;
 }) {
   const now = useNow(10_000);
   const live = useLiveShop({
@@ -378,6 +383,19 @@ export function DigitalPass({
             </p>
           </div>
         </motion.article>
+
+        {/* EZ-002: held offers / pick a new time */}
+        {booking.kind === "appointment" && pass.reschedule && (booking.status === "confirmed" || booking.status === "checked_in") && (
+          <PassReschedule
+            token={pass.token}
+            appt={booking}
+            data={pass.reschedule}
+            settings={settings}
+            shifts={shifts}
+            barbers={live.barbers}
+            autoOpen={openReschedule}
+          />
+        )}
 
         {/* Actions */}
         <div className="mt-5 space-y-3">

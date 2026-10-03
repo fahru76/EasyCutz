@@ -37,6 +37,10 @@ export interface ShopSettings {
   delayNotifyMin: number;
   /** EZ-011: free gap before a booking that makes the desk suggest "come in early". */
   earlyOfferMin: number;
+  /** EZ-002: customers can self-reschedule until this many minutes before the booking. */
+  rescheduleCutoffMin: number;
+  /** EZ-002: how long proposed times are held for the customer. */
+  offerHoldHours: number;
   shopPhone: string | null;
   shopAddress: string | null;
 }
@@ -144,6 +148,9 @@ export interface LiveAppointment {
   expectedEndAt: string | null;
   delayNotifiedAt: string | null;
   delayNotifiedMin: number | null;
+  rescheduleRequestedAt: string | null;
+  serviceIds: string[];
+  addonIds: string[];
   checkedInAt: string | null;
   calledAt: string | null;
   seatedAt: string | null;
@@ -216,6 +223,28 @@ export interface ApiError {
   message: string;
 }
 
+/** A time the shop has proposed and is holding for a customer (EZ-002). */
+export interface RescheduleOffer {
+  id: string;
+  barberId: string;
+  startsAt: string;
+  endsAt: string;
+  expiresAt: string;
+}
+
+export interface PassReschedule {
+  /** Customer may pick any free time now (beyond cutoff, or the shop asked them to). */
+  allowed: boolean;
+  /** The shop asked for a reschedule (delay, closure…). */
+  requested: boolean;
+  cutoffMin: number;
+  offers: RescheduleOffer[];
+  serviceIds: string[];
+  addonIds: string[];
+  /** Original start if the booking was moved. */
+  movedFrom: string | null;
+}
+
 /** Everything the digital pass page needs about one booking. */
 export interface PassData {
   token: string;
@@ -224,6 +253,8 @@ export interface PassData {
   phoneMasked: string;
   barber: Barber | null;
   preferredBarber: Barber | null;
+  /** Present for appointments only. */
+  reschedule: PassReschedule | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +279,8 @@ export function mapSettings(row: TableRow<"shop_settings">): ShopSettings {
     notifyLeadMin: row.notify_lead_min,
     delayNotifyMin: row.delay_notify_min,
     earlyOfferMin: row.early_offer_min,
+    rescheduleCutoffMin: row.reschedule_cutoff_min,
+    offerHoldHours: row.offer_hold_hours,
     shopPhone: row.shop_phone,
     shopAddress: row.shop_address,
   };
@@ -349,6 +382,9 @@ export function mapAppointment(row: TableRow<"appointments">): LiveAppointment {
     expectedEndAt: row.expected_end_at,
     delayNotifiedAt: row.delay_notified_at,
     delayNotifiedMin: row.delay_notified_min,
+    rescheduleRequestedAt: row.reschedule_requested_at,
+    serviceIds: row.service_ids,
+    addonIds: row.addon_ids,
     checkedInAt: row.checked_in_at,
     calledAt: row.called_at,
     seatedAt: row.seated_at,

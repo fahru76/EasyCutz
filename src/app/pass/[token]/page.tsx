@@ -38,6 +38,8 @@ export default async function PassPage({
       passUrl={`${origin}/pass/${token}`}
       paymentParam={payment}
       paymentsEnabled={catalog.paymentsEnabled}
+      shifts={catalog.shifts}
+      openReschedule={query.reschedule === "1"}
     />
   );
 }

@@ -152,3 +152,10 @@ export function formatLongDate(date: Date | string, timeZone: string): string {
     month: "long",
   }).format(typeof date === "string" ? new Date(date) : date);
 }
+
+/** "Tue 6 Oct · 2:30 pm" in the shop timezone. */
+export function formatShortDateTime(date: Date | string, timeZone: string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const day = new Intl.DateTimeFormat("en-MY", { timeZone, weekday: "short", day: "numeric", month: "short" }).format(d);
+  return `${day.replace(",", "")} · ${formatClock(d, timeZone)}`;
+}

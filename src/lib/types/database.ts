@@ -24,6 +24,7 @@ type PaymentOption = "cash_on_site" | "deposit" | "full";
 type PaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
 type BookingKind = "appointment" | "ticket";
 type StaffRole = "owner" | "host" | "barber";
+export type RescheduleReason = "delay" | "closure" | "barber_unavailable" | "early" | "manual";
 
 export type Database = {
   __InternalSupabase: {
@@ -46,6 +47,8 @@ export type Database = {
           notify_lead_min: number;
           delay_notify_min: number;
           early_offer_min: number;
+          reschedule_cutoff_min: number;
+          offer_hold_hours: number;
           shop_phone: string | null;
           shop_address: string | null;
           updated_at: string;
@@ -64,6 +67,8 @@ export type Database = {
           notify_lead_min?: number;
           delay_notify_min?: number;
           early_offer_min?: number;
+          reschedule_cutoff_min?: number;
+          offer_hold_hours?: number;
           shop_phone?: string | null;
           shop_address?: string | null;
           updated_at?: string;
@@ -253,6 +258,7 @@ export type Database = {
           expected_end_at: string | null;
           delay_notified_at: string | null;
           delay_notified_min: number | null;
+          reschedule_requested_at: string | null;
           checked_in_at: string | null;
           called_at: string | null;
           seated_at: string | null;
@@ -279,6 +285,7 @@ export type Database = {
           expected_end_at?: string | null;
           delay_notified_at?: string | null;
           delay_notified_min?: number | null;
+          reschedule_requested_at?: string | null;
           checked_in_at?: string | null;
           called_at?: string | null;
           seated_at?: string | null;
@@ -443,6 +450,56 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["payments"]["Insert"]>;
         Relationships: [];
       };
+      reschedule_offers: {
+        Row: {
+          id: string;
+          appointment_id: string;
+          barber_id: string;
+          starts_at: string;
+          ends_at: string;
+          reason: RescheduleReason;
+          status: "open" | "accepted" | "released" | "expired";
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          appointment_id: string;
+          barber_id: string;
+          starts_at: string;
+          ends_at: string;
+          reason: RescheduleReason;
+          status?: "open" | "accepted" | "released" | "expired";
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["reschedule_offers"]["Insert"]>;
+        Relationships: [];
+      };
+      booking_events: {
+        Row: {
+          id: string;
+          appointment_id: string | null;
+          ticket_id: string | null;
+          kind: "rescheduled" | "reschedule_requested" | "offers_created" | "offers_released";
+          actor: "customer" | "staff" | "system";
+          actor_user: string | null;
+          data: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          appointment_id?: string | null;
+          ticket_id?: string | null;
+          kind: "rescheduled" | "reschedule_requested" | "offers_created" | "offers_released";
+          actor: "customer" | "staff" | "system";
+          actor_user?: string | null;
+          data?: Json;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["booking_events"]["Insert"]>;
+        Relationships: [];
+      };
       catalog_changes: {
         Row: {
           id: string;
@@ -546,6 +603,18 @@ export type Database = {
       };
       admin_reorder: { Args: { p_table: "services" | "addons"; p_ids: string[] }; Returns: undefined };
       admin_update_settings: { Args: { p_patch: Json }; Returns: undefined };
+      reschedule_by_token: {
+        Args: { p_token: string; p_starts_at: string | null; p_barber_id: string | null; p_offer_id: string | null };
+        Returns: Json;
+      };
+      desk_reschedule: {
+        Args: { p_appointment_id: string; p_starts_at: string | null; p_barber_id: string | null; p_offer_id?: string | null };
+        Returns: Json;
+      };
+      create_reschedule_offers: {
+        Args: { p_appointment_id: string; p_reason: RescheduleReason; p_offers: Json };
+        Returns: Json;
+      };
       desk_set_duty: { Args: { p_barber_id: string; p_on_duty: boolean }; Returns: undefined };
     };
     Enums: {

@@ -33,6 +33,7 @@ export default async function DeskPage() {
     <DeskBoard
       settings={catalog.settings}
       initialBarbers={catalog.barbers}
+      shifts={catalog.shifts}
       staffName={session.displayName}
       isOwner={session.role === "owner"}
       origin={origin}

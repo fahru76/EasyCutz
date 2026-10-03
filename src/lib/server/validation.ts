@@ -59,10 +59,23 @@ export const availabilityQuerySchema = z.object({
     .optional()
     .transform((s) => (s ? s.split(",").filter(Boolean) : []))
     .pipe(z.array(uuid).max(MAX_ADDONS)),
+  /** EZ-002: when moving a booking, ignore that booking (and its own offers) as "busy". */
+  ignore: uuid.optional(),
 });
 export type AvailabilityQuery = z.infer<typeof availabilityQuerySchema>;
 
 export const tokenSchema = uuid;
+
+export const customerRescheduleSchema = z.union([
+  z.object({ offerId: uuid }),
+  z.object({ startsAt: z.iso.datetime({ offset: true }), barberId: uuid.nullable() }),
+]);
+
+export const deskProposalSchema = z.object({
+  appointmentId: uuid,
+  reason: z.enum(["delay", "closure", "barber_unavailable", "early", "manual"]),
+  limit: z.number().int().min(1).max(5).optional(),
+});
 
 export function parseOrThrow<T extends z.ZodType>(schema: T, data: unknown): z.output<T> {
   const result = schema.safeParse(data);

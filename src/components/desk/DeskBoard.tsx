@@ -36,8 +36,10 @@ import {
   type LiveAppointment,
   type LiveBooking,
   type LiveTicket,
+  type Shift,
   type ShopSettings,
 } from "@/lib/types/domain";
+import { DeskReschedule } from "../reschedule/DeskReschedule";
 import { SiteHeader } from "../ui/SiteHeader";
 import { Avatar, Badge, Button, Card, Switch, type BadgeTone } from "../ui/primitives";
 
@@ -48,12 +50,14 @@ const APPT_LIVE = new Set(["pending_payment", "confirmed", "checked_in", "called
 export function DeskBoard({
   settings,
   initialBarbers,
+  shifts,
   staffName,
   isOwner,
   origin,
 }: {
   settings: ShopSettings;
   initialBarbers: Barber[];
+  shifts: Shift[];
   staffName: string;
   isOwner: boolean;
   origin: string;
@@ -243,6 +247,9 @@ export function DeskBoard({
               settings={settings}
               now={now}
               origin={origin}
+              shifts={shifts}
+              barbers={live.barbers}
+              onChanged={() => void live.refresh()}
               appointmentsById={appointmentsById}
               pending={pending}
               onCallNext={() => void callNext(barber)}
@@ -268,6 +275,9 @@ export function DeskBoard({
                   barber={barberById.get(appt.barberId)}
                   settings={settings}
                   origin={origin}
+                  shifts={shifts}
+                  barbers={live.barbers}
+                  onChanged={() => void live.refresh()}
                   pending={pending}
                   onNotified={() => void markDelayNotified(appt.id, eta.delayMin)}
                 />
@@ -321,6 +331,10 @@ export function DeskBoard({
                   barber={barberById.get(a.barberId)}
                   eta={snapshot.appointmentEtas.get(a.id)}
                   settings={settings}
+                  origin={origin}
+                  shifts={shifts}
+                  barbers={live.barbers}
+                  onChanged={() => void live.refresh()}
                   now={now}
                   pending={pending}
                   onCheckIn={(token) => void checkIn(token)}
@@ -402,6 +416,9 @@ function ChairCard({
   settings,
   now,
   origin,
+  shifts,
+  barbers,
+  onChanged,
   appointmentsById,
   pending,
   onCallNext,
@@ -415,6 +432,9 @@ function ChairCard({
   settings: ShopSettings;
   now: Date;
   origin: string;
+  shifts: Shift[];
+  barbers: Barber[];
+  onChanged: () => void;
   appointmentsById: Map<string, LiveAppointment>;
   pending: string | null;
   onCallNext: () => void;
@@ -544,23 +564,37 @@ function ChairCard({
               <UserCheck className="size-4" /> Seat {nextName} now
             </Button>
           ) : nextContact && freeGap >= settings.earlyOfferMin ? (
-            <a
-              href={whatsappLink(
-                nextContact.phone,
-                freeEarlyMessage({
-                  shopName: settings.shopName,
-                  customerName: nextContact.customerName,
-                  barberName: barber.displayName,
-                  bookedTime: formatClock(nextAppt.startsAt, settings.timezone),
-                  passUrl: `${origin}/pass/${nextContact.accessToken}`,
-                }),
-              )}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20"
-            >
-              <MessageCircle className="size-4" /> Invite {nextName} early
-            </a>
+            <div className="space-y-2">
+              {/* EZ-011 + EZ-002: hold an earlier slot for the booked customer; they confirm from their pass */}
+              <DeskReschedule
+                appt={nextAppt}
+                contact={nextContact}
+                barbers={barbers}
+                settings={settings}
+                shifts={shifts}
+                origin={origin}
+                reason="early"
+                emphasis
+                onChanged={onChanged}
+              />
+              <a
+                href={whatsappLink(
+                  nextContact.phone,
+                  freeEarlyMessage({
+                    shopName: settings.shopName,
+                    customerName: nextContact.customerName,
+                    barberName: barber.displayName,
+                    bookedTime: formatClock(nextAppt.startsAt, settings.timezone),
+                    passUrl: `${origin}/pass/${nextContact.accessToken}`,
+                  }),
+                )}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-center text-xs text-emerald-300 hover:underline"
+              >
+                or just ask {nextName} to come in now
+              </a>
+            </div>
           ) : null
         )}
         {called && (
@@ -757,6 +791,10 @@ function AppointmentRow({
   barber,
   eta,
   settings,
+  origin,
+  shifts,
+  barbers,
+  onChanged,
   now,
   pending,
   onCheckIn,
@@ -768,6 +806,10 @@ function AppointmentRow({
   barber: Barber | undefined;
   eta: AppointmentEta | undefined;
   settings: ShopSettings;
+  origin: string;
+  shifts: Shift[];
+  barbers: Barber[];
+  onChanged: () => void;
   now: Date;
   pending: string | null;
   onCheckIn: (token: string) => void;
@@ -827,6 +869,20 @@ function AppointmentRow({
           )}
         </div>
       )}
+      {(appt.status === "confirmed" || appt.status === "checked_in") && (
+        <div className="flex flex-wrap">
+          <DeskReschedule
+            appt={appt}
+            contact={contact}
+            barbers={barbers}
+            settings={settings}
+            shifts={shifts}
+            origin={origin}
+            reason="manual"
+            onChanged={onChanged}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -852,6 +908,9 @@ function parseNoFit(data: unknown): NoFit | null {
   };
 }
 
+/** EZ-011: at this delay, the desk pushes "propose new times / another barber". */
+const DELAY_RESCHEDULE_MIN = 30;
+
 /** Re-prompt only when the delay grew by this much since the last notice. */
 const DELAY_RENOTIFY_STEP_MIN = 10;
 
@@ -862,6 +921,9 @@ function DelayedRow({
   barber,
   settings,
   origin,
+  shifts,
+  barbers,
+  onChanged,
   pending,
   onNotified,
 }: {
@@ -871,6 +933,9 @@ function DelayedRow({
   barber: Barber | undefined;
   settings: ShopSettings;
   origin: string;
+  shifts: Shift[];
+  barbers: Barber[];
+  onChanged: () => void;
   pending: string | null;
   onNotified: () => void;
 }) {
@@ -931,6 +996,22 @@ function DelayedRow({
           </a>
         </div>
       )}
+      <div className="flex w-full flex-wrap items-center gap-2">
+        {eta.delayMin >= DELAY_RESCHEDULE_MIN && (
+          <span className="text-xs text-rose-300">+{eta.delayMin}m late — offer new times or another barber</span>
+        )}
+        <DeskReschedule
+          appt={appt}
+          contact={contact}
+          barbers={barbers}
+          settings={settings}
+          shifts={shifts}
+          origin={origin}
+          reason="delay"
+          emphasis={eta.delayMin >= DELAY_RESCHEDULE_MIN}
+          onChanged={onChanged}
+        />
+      </div>
     </div>
   );
 }

@@ -35,7 +35,7 @@ function appt(
     id, kind: "appointment", barberId, startsAt: minutesFromNow(startIn), endsAt: minutesFromNow(startIn + duration),
     durationMin: duration, priceCents: 4500, serviceSummary: "Cut", displayName: "Guest", status,
     paymentOption: "cash_on_site", paymentStatus: "unpaid", amountDueNowCents: 0, holdExpiresAt: null,
-    expectedEndAt: null, delayNotifiedAt: null, delayNotifiedMin: null,
+    expectedEndAt: null, delayNotifiedAt: null, delayNotifiedMin: null, rescheduleRequestedAt: null, serviceIds: [], addonIds: [],
     checkedInAt: null, calledAt: null, seatedAt: null, completedAt: null, ...partial,
   };
 }

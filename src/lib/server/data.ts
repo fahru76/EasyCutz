@@ -6,6 +6,7 @@ import { maskPhone } from "@/lib/format";
 import { generateSlots, type BusyInterval } from "@/lib/slots";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { addDays, localDateString, localDayBounds } from "@/lib/time";
+import type { TableRow } from "@/lib/types/database";
 import {
   BLOCKING_APPOINTMENT_STATUSES,
   mapAddon,
@@ -97,11 +98,11 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
   }
 
   const { start, end } = localDayBounds(query.date, settings.timezone);
-  const [shifts, appts, timeOff] = await Promise.all([
+  const [shifts, appts, timeOff, offers] = await Promise.all([
     db.from("barber_shifts").select("*").in("barber_id", barberIds),
     db
       .from("appointments")
-      .select("barber_id, starts_at, ends_at, status")
+      .select("id, barber_id, starts_at, ends_at, status")
       .in("barber_id", barberIds)
       .lt("starts_at", end.toISOString())
       .gt("ends_at", start.toISOString()),
@@ -111,14 +112,26 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
       .in("barber_id", barberIds)
       .lt("starts_at", end.toISOString())
       .gt("ends_at", start.toISOString()),
+    db
+      .from("reschedule_offers")
+      .select("appointment_id, barber_id, starts_at, ends_at")
+      .eq("status", "open")
+      .gt("expires_at", now.toISOString())
+      .in("barber_id", barberIds)
+      .lt("starts_at", end.toISOString())
+      .gt("ends_at", start.toISOString()),
   ]);
-  for (const r of [shifts, appts, timeOff]) if (r.error) throw fromDbError(r.error);
+  for (const r of [shifts, appts, timeOff, offers]) if (r.error) throw fromDbError(r.error);
 
   const busy: BusyInterval[] = [
     ...(appts.data ?? [])
-      .filter((a) => BLOCKING_APPOINTMENT_STATUSES.has(a.status))
+      .filter((a) => BLOCKING_APPOINTMENT_STATUSES.has(a.status) && a.id !== query.ignore)
       .map((a) => ({ barberId: a.barber_id, start: new Date(a.starts_at), end: new Date(a.ends_at) })),
     ...(timeOff.data ?? []).map((t) => ({ barberId: t.barber_id, start: new Date(t.starts_at), end: new Date(t.ends_at) })),
+    // EZ-002: times held for other customers' reschedule offers are not bookable
+    ...(offers.data ?? [])
+      .filter((o) => o.appointment_id !== query.ignore)
+      .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at) })),
   ];
 
   const slots = generateSlots({
@@ -312,6 +325,7 @@ export async function getPass(token: string): Promise<PassData | null> {
   let booking: PassData["booking"];
   let barberId: string | null;
   let preferredId: string | null = null;
+  let reschedule: PassData["reschedule"] = null;
 
   if (priv.kind === "ticket" && priv.ticket_id) {
     const { data, error: e } = await db.from("queue_tickets").select("*").eq("id", priv.ticket_id).maybeSingle();
@@ -326,6 +340,7 @@ export async function getPass(token: string): Promise<PassData | null> {
     if (!data) return null;
     booking = mapAppointment(data);
     barberId = data.barber_id;
+    reschedule = await loadPassReschedule(data);
   } else {
     return null;
   }
@@ -344,6 +359,54 @@ export async function getPass(token: string): Promise<PassData | null> {
     phoneMasked: maskPhone(priv.phone),
     barber: barberId ? (byId.get(barberId) ?? null) : null,
     preferredBarber: preferredId ? (byId.get(preferredId) ?? null) : null,
+    reschedule,
+  };
+}
+
+/** EZ-002: open offers, whether the customer may pick freely, and where the booking moved from. */
+async function loadPassReschedule(appt: TableRow<"appointments">): Promise<PassData["reschedule"]> {
+  const db = getAdminSupabase();
+  const settings = await getSettings();
+  const [offers, events] = await Promise.all([
+    db
+      .from("reschedule_offers")
+      .select("id, barber_id, starts_at, ends_at, expires_at")
+      .eq("appointment_id", appt.id)
+      .eq("status", "open")
+      .gt("expires_at", new Date().toISOString())
+      .order("starts_at"),
+    db
+      .from("booking_events")
+      .select("data, created_at")
+      .eq("appointment_id", appt.id)
+      .eq("kind", "rescheduled")
+      .order("created_at", { ascending: true })
+      .limit(1),
+  ]);
+  if (offers.error) throw fromDbError(offers.error);
+  if (events.error) throw fromDbError(events.error);
+
+  const live = appt.status === "confirmed" || appt.status === "checked_in";
+  const requested = appt.reschedule_requested_at !== null;
+  const beyondCutoff = new Date(appt.starts_at).getTime() > Date.now() + settings.rescheduleCutoffMin * 60_000;
+  const firstMove = events.data?.[0]?.data as { from_starts_at?: unknown } | undefined;
+
+  return {
+    allowed: live && (requested || beyondCutoff),
+    requested,
+    cutoffMin: settings.rescheduleCutoffMin,
+    offers: live
+      ? (offers.data ?? []).map((o) => ({
+          id: o.id,
+          barberId: o.barber_id,
+          startsAt: o.starts_at,
+          endsAt: o.ends_at,
+          expiresAt: o.expires_at,
+        }))
+      : [],
+    serviceIds: appt.service_ids,
+    addonIds: appt.addon_ids,
+    movedFrom: typeof firstMove?.from_starts_at === "string" ? firstMove.from_starts_at : null,
   };
 }
 

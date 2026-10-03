@@ -22,6 +22,14 @@ const KNOWN_ERRORS: Record<string, { status: number; message: string }> = {
   forbidden: { status: 403, message: "Staff access only." },
   chair_busy: { status: 409, message: "That chair already has a customer in it." },
   barber_required: { status: 400, message: "Choose a barber first." },
+  reschedule_cutoff: {
+    status: 409,
+    message: "It's too close to your booking to change it online. Please WhatsApp the shop and we'll sort it out.",
+  },
+  offer_expired: { status: 409, message: "That time is no longer held for you. Please pick another one." },
+  invalid_request: { status: 400, message: "Something about that request wasn't right. Please try again." },
+  invalid_value: { status: 400, message: "One of the values is out of range." },
+  invalid_action: { status: 400, message: "That action isn't allowed." },
 };
 
 export class AppError extends Error {

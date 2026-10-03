@@ -342,4 +342,117 @@ select pg_temp.expect_error($$select price_cart(array[(select id from services w
 -- restore defaults for later sections
 update shop_settings set deposit_percent = 20, min_deposit_cents = 1000;
 
+\echo '--- EZ-002 reschedule'
+create temp table t_ids (k text primary key, val uuid);
+grant all on t_ids to authenticated;
+do $$
+declare v jsonb; v_cut uuid; v_aiman uuid;
+begin
+  select id into v_cut from services where slug = 'buzz-cut';            -- 20 min
+  select id into v_aiman from barbers where slug = 'aiman';
+  v := book_appointment(v_aiman, pg_temp.next_tuesday_at('11:00'), array[v_cut], '{}', 'Res One', '+60177000001', null, 'cash_on_site');
+  insert into t_ids values ('far_appt', (v->>'id')::uuid), ('far_token', (v->>'access_token')::uuid);
+
+  -- customer self-reschedule (far from cutoff): free choice, same barber
+  v := reschedule_by_token((select val from t_ids where k='far_token'), pg_temp.next_tuesday_at('12:00'), null, null);
+  assert (v->>'starts_at')::timestamptz = pg_temp.next_tuesday_at('12:00'), v::text;
+  assert (select status from appointments where id = (select val from t_ids where k='far_appt')) = 'confirmed';
+  assert (select count(*) from booking_events where appointment_id = (select val from t_ids where k='far_appt') and kind = 'rescheduled') = 1;
+
+  -- a booking starting soon (inside the 120-min cutoff)
+  insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status, payment_option, payment_status, amount_due_now_cents)
+  values (v_aiman, now() + interval '60 minutes', now() + interval '80 minutes', 20, 2500, array[v_cut], 'Buzz Cut', 'Soon S.', 'confirmed', 'deposit', 'paid', 1000)
+  returning id into v_cut;
+  insert into booking_private (kind, appointment_id, customer_name, phone) values ('appointment', v_cut, 'Soon Soon', '+60177000002');
+  insert into t_ids values ('soon_appt', v_cut), ('soon_token', (select access_token from booking_private where appointment_id = v_cut));
+end $$;
+select pg_temp.expect_error(
+  $$select reschedule_by_token((select val from t_ids where k='soon_token'), pg_temp.next_tuesday_at('15:00'), null, null)$$,
+  'reschedule_cutoff');
+select pg_temp.expect_error(
+  $$select reschedule_by_token((select val from t_ids where k='far_token'), pg_temp.next_tuesday_at('12:10'), null, null)$$,
+  'misaligned_slot');
+
+-- desk proposes two soft-held times (Aiman 13:00, Bryan 13:00)
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb;
+begin
+  v := create_reschedule_offers((select val from t_ids where k='soon_appt'), 'delay', jsonb_build_array(
+    jsonb_build_object('starts_at', pg_temp.next_tuesday_at('13:00'), 'barber_id', (select id from barbers where slug='aiman')),
+    jsonb_build_object('starts_at', pg_temp.next_tuesday_at('13:00'), 'barber_id', (select id from barbers where slug='bryan')),
+    jsonb_build_object('starts_at', pg_temp.next_tuesday_at('12:00'), 'barber_id', (select id from barbers where slug='aiman'))  -- taken: skipped
+  ));
+  assert jsonb_array_length(v) = 2, v::text;
+  assert (select reschedule_requested_at from appointments where id = (select val from t_ids where k='soon_appt')) is not null;
+  insert into t_ids values ('offer_a', (v->0->>'id')::uuid), ('offer_b', (v->1->>'id')::uuid);
+end $$;
+reset role;
+
+-- soft hold: nobody else can book Aiman or Bryan at 13:00, 'any' lands on another chair
+select pg_temp.expect_error(
+  $$select book_appointment((select id from barbers where slug='aiman'), pg_temp.next_tuesday_at('13:00'), array[(select id from services where slug='buzz-cut')], '{}', 'Intruder', '+60177000003', null, 'cash_on_site')$$,
+  'slot_unavailable');
+do $$
+declare v jsonb;
+begin
+  v := book_appointment(null, pg_temp.next_tuesday_at('13:00'), array[(select id from services where slug='buzz-cut')], '{}', 'Any One', '+60177000004', null, 'cash_on_site');
+  assert (v->>'barber_id')::uuid not in (select id from barbers where slug in ('aiman', 'bryan')), v::text;
+  -- another customer can't move onto a held window either
+  begin
+    perform reschedule_by_token((select val from t_ids where k='far_token'), pg_temp.next_tuesday_at('13:00'), (select id from barbers where slug='bryan'), null);
+    raise exception 'expected slot_unavailable';
+  exception when others then assert sqlerrm = 'slot_unavailable', sqlerrm; end;
+
+  -- requested reschedule bypasses the cutoff; customer accepts offer B (Bryan)
+  v := reschedule_by_token((select val from t_ids where k='soon_token'), null, null, (select val from t_ids where k='offer_b'));
+  assert (v->>'barber_id')::uuid = (select id from barbers where slug='bryan'), v::text;
+  assert (select status from reschedule_offers where id = (select val from t_ids where k='offer_b')) = 'accepted';
+  assert (select status from reschedule_offers where id = (select val from t_ids where k='offer_a')) = 'released';
+  assert (select payment_status from appointments where id = (select val from t_ids where k='soon_appt')) = 'paid', 'deposit kept';
+  assert (select reschedule_requested_at from appointments where id = (select val from t_ids where k='soon_appt')) is null;
+end $$;
+select pg_temp.expect_error(
+  $$select reschedule_by_token((select val from t_ids where k='soon_token'), null, null, (select val from t_ids where k='offer_a'))$$,
+  'offer_expired');
+
+-- expiry + release on cancel
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select create_reschedule_offers((select val from t_ids where k='far_appt'), 'manual',
+  jsonb_build_array(jsonb_build_object('starts_at', pg_temp.next_tuesday_at('16:30'), 'barber_id', (select id from barbers where slug='aiman'))));
+-- desk moves directly
+select desk_reschedule((select val from t_ids where k='far_appt'), pg_temp.next_tuesday_at('17:00'), null, null);
+reset role;
+do $$
+begin
+  assert (select starts_at from appointments where id = (select val from t_ids where k='far_appt')) = pg_temp.next_tuesday_at('17:00');
+  assert (select count(*) from reschedule_offers where appointment_id = (select val from t_ids where k='far_appt') and status = 'open') = 0, 'released on move';
+  assert (select actor from booking_events where appointment_id = (select val from t_ids where k='far_appt') and kind='rescheduled' order by created_at desc limit 1) = 'staff';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select create_reschedule_offers((select val from t_ids where k='far_appt'), 'manual',
+  jsonb_build_array(jsonb_build_object('starts_at', pg_temp.next_tuesday_at('18:00'), 'barber_id', (select id from barbers where slug='aiman'))));
+reset role;
+do $$
+begin
+  update reschedule_offers set expires_at = now() - interval '1 second' where appointment_id = (select val from t_ids where k='far_appt') and status = 'open';
+  perform expire_stale_holds();
+  assert (select count(*) from reschedule_offers where appointment_id = (select val from t_ids where k='far_appt') and status = 'expired') = 1;
+  perform cancel_booking((select val from t_ids where k='far_token'));
+end $$;
+
+-- privileges
+set role anon;
+select pg_temp.expect_error($$select reschedule_by_token(gen_random_uuid(), now(), null, null)$$, 'permission denied for function reschedule_by_token');
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
+select pg_temp.expect_error($$select desk_reschedule(gen_random_uuid(), now(), null, null)$$, 'forbidden');
+select pg_temp.expect_error($$select create_reschedule_offers(gen_random_uuid(), 'delay', '[]'::jsonb)$$, 'forbidden');
+do $$ begin assert (select count(*) from reschedule_offers) = 0, 'non-staff cannot read offers'; end $$;
+reset role;
+
 \echo 'ALL SMOKE TESTS PASSED'
