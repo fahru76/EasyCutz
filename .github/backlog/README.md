@@ -15,7 +15,7 @@ Tickets raised 2026-10-03. Each file is a GitHub-issue-ready ticket; publish the
 | EZ-008 | Hairstyle preference & reference photos | P2 | — |
 | EZ-009 | Admin — edit services, add-ons and fees from the app | P1 | — |
 | EZ-010 | Dual language — English + Bahasa Melayu | P2 | EZ-009 (BM menu fields) |
-| EZ-011 | Service overrun — push delays to in-chair, walk-in and online customers (includes ETA bug fix) | P1 | EZ-002, EZ-005 |
+| EZ-011 | Service overrun **or early finish** — live per-barber timing (includes ETA bug fix, gap-aware Call Next) | P1 | EZ-002, EZ-005 |
 
 Suggested order: EZ-009 → EZ-002 → EZ-001 → EZ-003 → EZ-005 → EZ-011 → EZ-010 → EZ-007 → EZ-008 → EZ-004 → EZ-006.
 
@@ -25,3 +25,4 @@ Suggested order: EZ-009 → EZ-002 → EZ-001 → EZ-003 → EZ-005 → EZ-011 �
 - 2026-10-03 · EZ-004: "future booking" includes taking a ticket today for **tomorrow's** queue (confirmed).
 - 2026-10-03 · EZ-006 / EZ-007: no changes to scope.
 - 2026-10-03 · EZ-010: language pair **English + Bahasa Melayu** confirmed; BM copy written and approved by Fahru.
+- 2026-10-03 · EZ-011: also covers **early finish**, calculated **per barber** (pull-forward is opt-in for booked customers).
