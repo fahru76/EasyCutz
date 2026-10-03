@@ -118,3 +118,44 @@ export function rescheduledMessage(args: {
   const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
   return `Hi ${first}, your ${args.shopName} booking is now ${args.newTime} with ${args.barberName}. Live pass: ${args.passUrl}`;
 }
+
+/** EZ-001: a walk-in ticket was cancelled because the shop had to close. */
+export function closureTicketMessage(args: {
+  shopName: string;
+  customerName: string;
+  code: string;
+  shopMessage: string;
+  reopensAt: string;
+  bookUrl: string;
+  refund: boolean;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  return (
+    `Hi ${first}, it's ${args.shopName}. Sorry — we've had to close the shop: ${args.shopMessage} ` +
+    `Your queue ticket ${args.code} has been cancelled. ` +
+    (args.refund ? "Your online payment will be refunded. " : "") +
+    `We expect to reopen ${args.reopensAt}. Book a time or join the queue again here: ${args.bookUrl}`
+  );
+}
+
+/** EZ-001: a booked customer's time falls inside an emergency closure. */
+export function closureAppointmentMessage(args: {
+  shopName: string;
+  customerName: string;
+  bookedTime: string;
+  shopMessage: string;
+  options: string[];
+  holdUntil: string | null;
+  passUrl: string;
+}): string {
+  const first = args.customerName.split(/\s+/)[0] ?? args.customerName;
+  const intro = `Hi ${first}, it's ${args.shopName}. Sorry — we've had to close the shop: ${args.shopMessage} `;
+  if (args.options.length === 0) {
+    return `${intro}This affects your ${args.bookedTime} booking. Please pick a new time here: ${args.passUrl}?reschedule=1`;
+  }
+  const list = args.options.map((o, i) => `${i + 1}) ${o}`).join("\n");
+  return (
+    `${intro}This affects your ${args.bookedTime} booking. We're holding these times for you:\n${list}\n` +
+    `Tap to choose${args.holdUntil ? ` (held until ${args.holdUntil})` : ""} or pick another time: ${args.passUrl}?reschedule=1`
+  );
+}

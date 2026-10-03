@@ -77,6 +77,17 @@ export const deskProposalSchema = z.object({
   limit: z.number().int().min(1).max(5).optional(),
 });
 
+/** EZ-001: desk closure actions. */
+export const deskClosureSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("close"),
+    until: z.iso.datetime({ offset: true }),
+    reason: z.enum(["power", "weather", "illness", "emergency", "other"]),
+    message: z.string().trim().min(1).max(280),
+  }),
+  z.object({ action: z.literal("reopen") }),
+]);
+
 export function parseOrThrow<T extends z.ZodType>(schema: T, data: unknown): z.output<T> {
   const result = schema.safeParse(data);
   if (!result.success) {

@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CircleCheck,
   CreditCard,
+  DoorClosed,
   MessageCircle,
   Share2,
   Ticket,
@@ -15,13 +16,25 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useLiveSettings } from "@/hooks/use-live-settings";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
+import { formatReopen, overlapsClosure } from "@/lib/closure";
 import { cn, formatDuration, formatMoney, formatQueueLine } from "@/lib/format";
 import { whatsappLink } from "@/lib/notify";
 import { buildQueueSnapshot, type AppointmentEta } from "@/lib/queue";
 import { formatClock, formatLongDate, minutesBetween } from "@/lib/time";
-import type { ApiError, Barber, LiveAppointment, LiveBooking, LiveTicket, PassData, Shift, ShopSettings } from "@/lib/types/domain";
+import {
+  isShopClosed,
+  type ApiError,
+  type Barber,
+  type LiveAppointment,
+  type LiveBooking,
+  type LiveTicket,
+  type PassData,
+  type Shift,
+  type ShopSettings,
+} from "@/lib/types/domain";
 import { PassReschedule } from "../reschedule/PassReschedule";
 import { SiteHeader } from "../ui/SiteHeader";
 import { Avatar, Badge, Button, type BadgeTone } from "../ui/primitives";
@@ -71,7 +84,7 @@ const isActive = (b: LiveBooking) =>
 
 export function DigitalPass({
   pass,
-  settings,
+  settings: initialSettings,
   barbers,
   checkInUrl,
   passUrl,
@@ -91,6 +104,8 @@ export function DigitalPass({
   openReschedule: boolean;
 }) {
   const now = useNow(10_000);
+  // EZ-001: closure state arrives live.
+  const settings = useLiveSettings(initialSettings, `pass-settings-${pass.token.slice(0, 8)}`);
   const live = useLiveShop({
     initialBarbers: barbers,
     timezone: settings.timezone,
@@ -209,6 +224,8 @@ export function DigitalPass({
     ((booking.kind === "appointment" && booking.status === "pending_payment") ||
       (booking.kind === "ticket" && isActive(booking) && booking.paymentOption !== "cash_on_site"));
 
+  const notice = closureNotice({ booking, pass, settings, now });
+
   return (
     <div className="flex min-h-dvh flex-col">
       <SiteHeader shopName={settings.shopName} status={live.status} />
@@ -242,8 +259,27 @@ export function DigitalPass({
           )}
         </AnimatePresence>
 
+        {notice && (
+          <div role="status" className="mb-4 flex gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-rose-100">
+            <DoorClosed className="size-6 shrink-0 text-rose-300" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{notice.title}</p>
+              {notice.message && <p className="mt-1 text-sm text-rose-100/80">{notice.message}</p>}
+              <p className="mt-1 text-sm text-rose-200/80">{notice.detail}</p>
+              {notice.bookAgain && (
+                <Link
+                  href="/"
+                  className="mt-3 inline-flex h-9 items-center rounded-lg bg-amber-500 px-3 text-sm font-semibold text-zinc-950 hover:bg-amber-400"
+                >
+                  Book or queue another day
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
+
         <AnimatePresence>
-          {turnSoon && (
+          {!notice && turnSoon && (
             <motion.div
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -554,4 +590,65 @@ function AppointmentHeadline({
       )}
     </div>
   );
+}
+
+// -------------------------------------------------------------------------------------
+// EZ-001: what to tell the customer about an emergency closure
+function closureNotice({
+  booking,
+  pass,
+  settings,
+  now,
+}: {
+  booking: LiveBooking;
+  pass: PassData;
+  settings: ShopSettings;
+  now: Date;
+}): { title: string; message: string | null; detail: string; bookAgain: boolean } | null {
+  const closure = pass.closure;
+  const closedNow = isShopClosed(settings, now);
+  const reopens = settings.closedUntil ? formatReopen(settings.closedUntil, settings.timezone, now) : null;
+  const paid = booking.paymentStatus === "paid";
+
+  if (booking.kind === "ticket" && booking.status === "cancelled" && booking.cancelReason === "shop_closed") {
+    return {
+      title: "Shop closed — your ticket was cancelled",
+      message: closure?.message ?? settings.closureMessage,
+      detail:
+        (paid ? "Your online payment will be refunded. " : "") +
+        "You're welcome to book a time or join the queue again once we reopen.",
+      bookAgain: true,
+    };
+  }
+  if (booking.kind === "appointment" && closure?.action === "hold_released" && booking.status === "expired") {
+    return {
+      title: "Shop closed — your unpaid booking was released",
+      message: closure.message,
+      detail: (paid ? "Your payment will be refunded. " : "") + "Please book another time.",
+      bookAgain: true,
+    };
+  }
+  const live = booking.status === "confirmed" || booking.status === "checked_in" || booking.status === "called";
+  if (booking.kind === "appointment" && live && closure && overlapsClosure(booking, closure)) {
+    return {
+      title: "Shop temporarily closed at your booking time",
+      message: closure.message,
+      detail: "Your booking and any payment are kept. Pick one of the times we're holding for you below, or choose another time.",
+      bookAgain: false,
+    };
+  }
+  if (closedNow && reopens && (booking.kind === "ticket" ? booking.status === "waiting" : live)) {
+    const unaffected = booking.kind === "appointment" &&
+      settings.closedUntil !== null &&
+      new Date(booking.startsAt).getTime() >= new Date(settings.closedUntil).getTime();
+    return {
+      title: `Shop temporarily closed · reopening ${reopens}`,
+      message: settings.closureMessage,
+      detail: unaffected
+        ? `Your booking on ${formatLongDate(booking.startsAt, settings.timezone)} at ${formatClock(booking.startsAt, settings.timezone)} isn't affected.`
+        : "Sorry for the trouble.",
+      bookAgain: false,
+    };
+  }
+  return null;
 }

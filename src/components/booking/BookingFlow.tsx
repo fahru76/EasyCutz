@@ -1,16 +1,17 @@
 "use client";
 
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
-import { CalendarClock, Check, TicketCheck, TriangleAlert, X } from "lucide-react";
+import { CalendarClock, Check, DoorClosed, TicketCheck, TriangleAlert, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useLiveCatalog } from "@/hooks/use-live-catalog";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { computeAmountDueNow, computeCartTotals } from "@/lib/cart";
+import { formatReopen } from "@/lib/closure";
 import { cn, formatMoney, formatQueueLine, formatWait, normalizePhone } from "@/lib/format";
 import { buildQueueSnapshot, estimateWalkIn } from "@/lib/queue";
-import type { ApiError, BookingMode, Catalog, CreateBookingResponse } from "@/lib/types/domain";
+import { isShopClosed, type ApiError, type BookingMode, type Catalog, type CreateBookingResponse } from "@/lib/types/domain";
 import { BOOKING_STEPS, useBookingStore, type BookingStep } from "@/store/booking-store";
 import { SiteHeader } from "../ui/SiteHeader";
 import { BarberRoster } from "./BarberRoster";
@@ -66,6 +67,12 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
     [queueInput, totals.durationMin, barberId],
   );
   const selectedBarber = barberId === "any" ? null : (live.barbers.find((b) => b.id === barberId) ?? null);
+  // EZ-001: emergency closure pauses the walk-in queue (bookings after reopening still work).
+  const closed = isShopClosed(settings, now);
+  const closure =
+    closed && settings.closedUntil
+      ? { reopens: formatReopen(settings.closedUntil, settings.timezone, now), message: settings.closureMessage }
+      : null;
 
   const [submitting, setSubmitting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
@@ -96,7 +103,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
   const stepValid: Record<BookingStep, boolean> = {
     services: serviceIds.length > 0,
     barber: mode === "scheduled" || !selectedBarber || selectedBarber.isOnDuty,
-    when: mode === "scheduled" ? slot !== null : walkInEstimate !== null,
+    when: mode === "scheduled" ? slot !== null : walkInEstimate !== null && !closed,
     details: Object.keys(customerErrors).length === 0,
   };
 
@@ -149,7 +156,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
       if (!res.ok) {
         const err = json as ApiError;
         setToast(err.message ?? "Booking failed. Please try again.");
-        if (err.error === "slot_unavailable" || err.error === "slot_in_past") {
+        if (err.error === "slot_unavailable" || err.error === "slot_in_past" || err.error === "closed_window") {
           store.setSlot(null);
           store.goTo("when");
         }
@@ -182,6 +189,18 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
       <SiteHeader shopName={settings.shopName} status={live.status} />
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-40 pt-6">
+        {closure && (
+          <div role="status" className="mb-5 flex gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-rose-100">
+            <DoorClosed className="size-6 shrink-0 text-rose-300" />
+            <div>
+              <p className="font-semibold">Shop temporarily closed · reopening {closure.reopens}</p>
+              {closure.message && <p className="mt-1 text-sm text-rose-100/80">{closure.message}</p>}
+              <p className="mt-1 text-sm text-rose-200/70">
+                The live queue is paused. You can still book a time after we reopen.
+              </p>
+            </div>
+          </div>
+        )}
         <Hero
           mode={mode}
           onMode={(m) => store.setMode(m)}
@@ -264,6 +283,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
                     barbers={live.barbers}
                     selectedBarber={selectedBarber}
                     timezone={settings.timezone}
+                    closure={closure}
                   />
                 )}
               </section>

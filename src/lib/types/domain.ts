@@ -2,7 +2,9 @@
  * Application-level (camelCase) domain model + row mappers.
  * Database rows (snake_case) never leak past the data layer / realtime hook.
  */
-import type { DbEnum, TableRow } from "./database";
+import type { ClosureImpactAction, ClosureReason, DbEnum, TableRow, TicketCancelReason } from "./database";
+
+export type { ClosureImpactAction, ClosureReason, TicketCancelReason };
 
 export type ServiceCategory = DbEnum<"service_category">;
 export type TicketStatus = DbEnum<"ticket_status">;
@@ -41,6 +43,10 @@ export interface ShopSettings {
   rescheduleCutoffMin: number;
   /** EZ-002: how long proposed times are held for the customer. */
   offerHoldHours: number;
+  /** EZ-001: emergency closure — shop is closed while now < closedUntil. */
+  closedUntil: string | null;
+  closureMessage: string | null;
+  closureReason: ClosureReason | null;
   shopPhone: string | null;
   shopAddress: string | null;
 }
@@ -122,6 +128,8 @@ export interface LiveTicket {
   paymentStatus: PaymentStatus;
   checkedInAt: string | null;
   notifiedAt: string | null;
+  /** EZ-001: why a cancelled ticket was cancelled. */
+  cancelReason: TicketCancelReason | null;
   /** Expected finish while in the chair (adjustable from the desk). */
   expectedEndAt: string | null;
   calledAt: string | null;
@@ -255,6 +263,29 @@ export interface PassData {
   preferredBarber: Barber | null;
   /** Present for appointments only. */
   reschedule: PassReschedule | null;
+  /** EZ-001: the emergency closure that affected this booking, if any. */
+  closure: PassClosure | null;
+}
+
+/** An emergency closure window as a customer sees it (EZ-001). */
+export interface PassClosure {
+  startsAt: string;
+  endsAt: string;
+  message: string;
+  action: ClosureImpactAction;
+}
+
+export const CLOSURE_REASONS: ReadonlyArray<{ id: ClosureReason; label: string }> = [
+  { id: "power", label: "Power cut" },
+  { id: "weather", label: "Flood / weather" },
+  { id: "illness", label: "Illness" },
+  { id: "emergency", label: "Emergency" },
+  { id: "other", label: "Other" },
+];
+
+/** True while an emergency closure is in force (EZ-001). */
+export function isShopClosed(settings: Pick<ShopSettings, "closedUntil">, now: Date): boolean {
+  return settings.closedUntil !== null && new Date(settings.closedUntil).getTime() > now.getTime();
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +312,9 @@ export function mapSettings(row: TableRow<"shop_settings">): ShopSettings {
     earlyOfferMin: row.early_offer_min,
     rescheduleCutoffMin: row.reschedule_cutoff_min,
     offerHoldHours: row.offer_hold_hours,
+    closedUntil: row.closed_until,
+    closureMessage: row.closure_message,
+    closureReason: row.closure_reason,
     shopPhone: row.shop_phone,
     shopAddress: row.shop_address,
   };
@@ -355,6 +389,7 @@ export function mapTicket(row: TableRow<"queue_tickets">): LiveTicket {
     paymentStatus: row.payment_status,
     checkedInAt: row.checked_in_at,
     notifiedAt: row.notified_at,
+    cancelReason: row.cancel_reason,
     expectedEndAt: row.expected_end_at,
     calledAt: row.called_at,
     seatedAt: row.seated_at,

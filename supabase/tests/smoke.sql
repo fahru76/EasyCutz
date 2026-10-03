@@ -455,4 +455,179 @@ select pg_temp.expect_error($$select create_reschedule_offers(gen_random_uuid(),
 do $$ begin assert (select count(*) from reschedule_offers) = 0, 'non-staff cannot read offers'; end $$;
 reset role;
 
+\echo '--- EZ-001 emergency closure'
+do $$
+declare v jsonb; v_cut uuid; v_barber uuid; v_appt uuid; v_hold uuid; v_far uuid;
+begin
+  update barbers set is_on_duty = true where slug in ('aiman', 'bryan');
+  select id into v_cut from services where slug = 'buzz-cut';
+  select id into v_barber from barbers where slug = 'aiman';
+
+  -- two live walk-ins today, one prepaid
+  v := issue_queue_ticket(null, array[v_cut], '{}', 'Closure Walk', '+60188000001', null, 'cash_on_site');
+  insert into t_ids values ('cl_t1', (v->>'id')::uuid);
+  v := issue_queue_ticket(null, array[v_cut], '{}', 'Closure Paid', '+60188000002', null, 'full');
+  insert into t_ids values ('cl_t2', (v->>'id')::uuid);
+  update queue_tickets set payment_status = 'paid' where id = (v->>'id')::uuid;
+  insert into payments (kind, ticket_id, stripe_checkout_session_id, amount_cents, currency, status)
+  values ('ticket', (v->>'id')::uuid, 'cs_test_closure_t2', 2500, 'myr', 'paid');
+  -- a ticket whose checkout is still open
+  v := issue_queue_ticket(null, array[v_cut], '{}', 'Closure Late Pay', '+60188000003', null, 'full');
+  insert into t_ids values ('cl_t3', (v->>'id')::uuid);
+  insert into payments (kind, ticket_id, stripe_checkout_session_id, amount_cents, currency, status)
+  values ('ticket', (v->>'id')::uuid, 'cs_test_closure_t3', 2500, 'myr', 'pending');
+
+  -- a paid appointment tomorrow 15:00 (inside the closure), a payment hold at 16:00
+  insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status, payment_option, payment_status, amount_due_now_cents)
+  values (v_barber, ((shop_today() + 1)::text || ' 15:00')::timestamp at time zone shop_tz(),
+          ((shop_today() + 1)::text || ' 15:20')::timestamp at time zone shop_tz(),
+          20, 2500, array[v_cut], 'Buzz Cut', 'Affected A.', 'confirmed', 'deposit', 'paid', 1000)
+  returning id into v_appt;
+  insert into booking_private (kind, appointment_id, customer_name, phone) values ('appointment', v_appt, 'Affected Appt', '+60188000004');
+  insert into payments (kind, appointment_id, stripe_checkout_session_id, amount_cents, currency, status)
+  values ('appointment', v_appt, 'cs_test_closure_a1', 1000, 'myr', 'paid');
+  insert into t_ids values ('cl_appt', v_appt), ('cl_appt_token', (select access_token from booking_private where appointment_id = v_appt));
+
+  insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status, payment_option, payment_status, amount_due_now_cents, hold_expires_at)
+  values (v_barber, ((shop_today() + 1)::text || ' 16:00')::timestamp at time zone shop_tz(),
+          ((shop_today() + 1)::text || ' 16:20')::timestamp at time zone shop_tz(),
+          20, 2500, array[v_cut], 'Buzz Cut', 'Hold H.', 'pending_payment', 'full', 'pending', 2500, now() + interval '30 minutes')
+  returning id into v_hold;
+  insert into payments (kind, appointment_id, stripe_checkout_session_id, amount_cents, currency, status)
+  values ('appointment', v_hold, 'cs_test_closure_h1', 2500, 'myr', 'pending');
+  insert into t_ids values ('cl_hold', v_hold);
+
+  -- an appointment well after the closure, holding an offer inside it
+  insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status)
+  values (v_barber, ((shop_today() + 10)::text || ' 11:00')::timestamp at time zone shop_tz(),
+          ((shop_today() + 10)::text || ' 11:20')::timestamp at time zone shop_tz(),
+          20, 2500, array[v_cut], 'Buzz Cut', 'Far F.', 'confirmed')
+  returning id into v_far;
+  insert into reschedule_offers (appointment_id, barber_id, starts_at, ends_at, reason, expires_at)
+  values (v_far, (select id from barbers where slug = 'bryan'),
+          ((shop_today() + 1)::text || ' 17:00')::timestamp at time zone shop_tz(),
+          ((shop_today() + 1)::text || ' 17:20')::timestamp at time zone shop_tz(), 'manual', now() + interval '1 day');
+  insert into t_ids values ('cl_far', v_far);
+end $$;
+
+-- only staff may close; bad input rejected
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
+select pg_temp.expect_error($$select desk_close_shop(now() + interval '1 day', 'power', 'x')$$, 'forbidden');
+select pg_temp.expect_error($$select desk_reopen_shop()$$, 'forbidden');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select pg_temp.expect_error($$select desk_close_shop(now() + interval '1 minute', 'power', 'Closed')$$, 'invalid_value');
+select pg_temp.expect_error($$select desk_close_shop(now() + interval '60 days', 'power', 'Closed')$$, 'invalid_value');
+select pg_temp.expect_error($$select desk_close_shop(now() + interval '1 day', 'aliens', 'Closed')$$, 'invalid_value');
+select pg_temp.expect_error($$select desk_close_shop(now() + interval '1 day', 'power', '   ')$$, 'invalid_value');
+select pg_temp.expect_error($$select desk_reopen_shop()$$, 'invalid_transition');
+do $$
+declare v jsonb;
+begin
+  v := desk_close_shop(((shop_today() + 3)::text || ' 09:00')::timestamp at time zone shop_tz(), 'power', 'Power cut in the area. Sorry!');
+  assert (v->>'tickets_cancelled')::int >= 3, v::text;
+  assert (v->>'holds_released')::int >= 1, v::text;
+  assert (v->>'offers_released')::int >= 1, v::text;
+  assert (v->'appointment_ids') ? (select val::text from t_ids where k='cl_appt'), v::text;
+  insert into t_ids values ('closure', (v->>'closure_id')::uuid);
+  -- running it again (new message) keeps the same closure and doesn't duplicate impacts
+  v := desk_close_shop(((shop_today() + 3)::text || ' 09:00')::timestamp at time zone shop_tz(), 'power', 'Power cut — back on Thursday.');
+  assert (v->>'closure_id')::uuid = (select val from t_ids where k='closure'), v::text;
+  assert (v->>'tickets_cancelled')::int = 0, v::text;
+end $$;
+reset role;
+
+do $$
+begin
+  assert shop_closed_now(), 'closed now';
+  assert (select closure_message from shop_settings) = 'Power cut — back on Thursday.';
+  assert (select closed_until from shop_settings) = ((shop_today() + 3)::text || ' 09:00')::timestamp at time zone shop_tz();
+  assert (select count(*) from queue_tickets where id in (select val from t_ids where k in ('cl_t1','cl_t2','cl_t3'))
+            and status = 'cancelled' and cancel_reason = 'shop_closed') = 3, 'walk-ins cancelled';
+  assert (select needs_refund from payments where stripe_checkout_session_id = 'cs_test_closure_t2'), 'paid ticket flagged';
+  assert (select had_payment from closure_impacts where ticket_id = (select val from t_ids where k='cl_t2')), 'impact records payment';
+  assert (select count(*) from closure_impacts where ticket_id = (select val from t_ids where k='cl_t1')) = 1, 'no duplicate impacts';
+  assert (select status from appointments where id = (select val from t_ids where k='cl_appt')) = 'confirmed', 'appointment not cancelled';
+  assert (select reschedule_requested_at from appointments where id = (select val from t_ids where k='cl_appt')) is not null;
+  assert (select status from appointments where id = (select val from t_ids where k='cl_hold')) = 'expired', 'hold released';
+  assert (select status from reschedule_offers where appointment_id = (select val from t_ids where k='cl_far')) = 'released', 'offer in window released';
+  assert slot_conflict((select id from barbers where slug='bryan'),
+                       ((shop_today() + 1)::text || ' 17:00')::timestamp at time zone shop_tz(),
+                       ((shop_today() + 1)::text || ' 17:20')::timestamp at time zone shop_tz(), null) = 'shop_closed';
+end $$;
+
+-- closed: no tickets, no bookings or moves into the window
+select pg_temp.expect_error(
+  $$select issue_queue_ticket(null, array[(select id from services where slug='buzz-cut')], '{}', 'Too Late', '+60188000009', null, 'cash_on_site')$$,
+  'shop_closed');
+select pg_temp.expect_error(
+  $$select book_appointment(null, ((shop_today() + 1)::text || ' 14:00')::timestamp at time zone shop_tz(), array[(select id from services where slug='buzz-cut')], '{}', 'In Window', '+60188000010', null, 'cash_on_site')$$,
+  'closed_window');
+select pg_temp.expect_error(
+  $$select reschedule_by_token((select val from t_ids where k='cl_appt_token'), ((shop_today() + 2)::text || ' 14:00')::timestamp at time zone shop_tz(), null, null)$$,
+  'slot_unavailable');
+
+-- late payments: a cancelled ticket or a released hold is flagged for refund, not revived
+do $$
+declare v jsonb;
+begin
+  v := apply_checkout_result('cs_test_closure_t3', true, 'pi_t3');
+  assert v->>'outcome' = 'needs_refund', v::text;
+  assert (select status from queue_tickets where id = (select val from t_ids where k='cl_t3')) = 'cancelled';
+  v := apply_checkout_result('cs_test_closure_h1', true, 'pi_h1');
+  assert v->>'outcome' = 'needs_refund', v::text;
+  assert (select status from appointments where id = (select val from t_ids where k='cl_hold')) = 'expired', 'hold not revived';
+end $$;
+
+-- desk: notified + cancel-with-refund for the affected appointment
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select desk_mark_closure_notified((select id from closure_impacts where appointment_id = (select val from t_ids where k='cl_appt')));
+do $$
+declare v jsonb;
+begin
+  assert (select notified_at from closure_impacts where appointment_id = (select val from t_ids where k='cl_appt')) is not null;
+  v := desk_cancel_affected((select id from closure_impacts where appointment_id = (select val from t_ids where k='cl_appt')));
+  assert (v->>'refund_flagged')::boolean, v::text;
+end $$;
+select pg_temp.expect_error(
+  $$select desk_cancel_affected((select id from closure_impacts where ticket_id = (select val from t_ids where k='cl_t1')))$$,
+  'not_found');
+reset role;
+do $$
+begin
+  assert (select status from appointments where id = (select val from t_ids where k='cl_appt')) = 'cancelled';
+  assert (select needs_refund from payments where stripe_checkout_session_id = 'cs_test_closure_a1'), 'deposit flagged for refund';
+end $$;
+
+-- visibility: anon can see the public closure message but not the closure tables
+set role anon;
+select pg_temp.expect_error($$select count(*) from shop_closures$$, 'permission denied for table shop_closures');
+select pg_temp.expect_error($$select count(*) from closure_impacts$$, 'permission denied for table closure_impacts');
+do $$ begin assert (select closed_until from shop_settings) is not null; end $$;
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
+do $$ begin assert (select count(*) from closure_impacts) = 0, 'non-staff cannot read impacts'; end $$;
+
+-- reopen: queue works again, closure kept as history, cancelled tickets stay cancelled
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+select desk_reopen_shop();
+select pg_temp.expect_error($$select desk_reopen_shop()$$, 'invalid_transition');
+reset role;
+do $$
+declare v jsonb;
+begin
+  assert not shop_closed_now(), 'reopened';
+  assert (select closed_until from shop_settings) is null;
+  assert (select reopened_at from shop_closures where id = (select val from t_ids where k='closure')) is not null, 'history kept';
+  assert (select ends_at < planned_ends_at from shop_closures where id = (select val from t_ids where k='closure')), 'window shortened';
+  assert (select status from queue_tickets where id = (select val from t_ids where k='cl_t1')) = 'cancelled';
+  v := issue_queue_ticket(null, array[(select id from services where slug='buzz-cut')], '{}', 'After Reopen', '+60188000011', null, 'cash_on_site');
+  assert v ? 'code', v::text;
+  assert slot_conflict((select id from barbers where slug='bryan'),
+                       ((shop_today() + 1)::text || ' 17:00')::timestamp at time zone shop_tz(),
+                       ((shop_today() + 1)::text || ' 17:20')::timestamp at time zone shop_tz(), null) is distinct from 'shop_closed';
+end $$;
+
 \echo 'ALL SMOKE TESTS PASSED'

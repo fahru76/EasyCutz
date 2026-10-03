@@ -18,7 +18,7 @@ function ticket(n: number, partial: Partial<LiveTicket> = {}): LiveTicket {
     id: `t${n}`, kind: "ticket", shopDay: "2026-10-06", ticketNumber: n, code: `W-${n}`,
     preferredBarberId: null, barberId: null, status: "waiting", durationMin: 30, priceCents: 4500,
     serviceSummary: "Cut", displayName: "Guest", paymentOption: "cash_on_site", paymentStatus: "unpaid",
-    checkedInAt: null, notifiedAt: null, expectedEndAt: null, calledAt: null, seatedAt: null, completedAt: null,
+    checkedInAt: null, notifiedAt: null, cancelReason: null, expectedEndAt: null, calledAt: null, seatedAt: null, completedAt: null,
     createdAt: minutesAgo(30), ...partial,
   };
 }

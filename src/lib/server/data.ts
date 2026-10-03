@@ -98,7 +98,7 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
   }
 
   const { start, end } = localDayBounds(query.date, settings.timezone);
-  const [shifts, appts, timeOff, offers] = await Promise.all([
+  const [shifts, appts, timeOff, offers, closures] = await Promise.all([
     db.from("barber_shifts").select("*").in("barber_id", barberIds),
     db
       .from("appointments")
@@ -120,6 +120,7 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
       .in("barber_id", barberIds)
       .lt("starts_at", end.toISOString())
       .gt("ends_at", start.toISOString()),
+    loadClosureWindows(start, end),
   ]);
   for (const r of [shifts, appts, timeOff, offers]) if (r.error) throw fromDbError(r.error);
 
@@ -132,6 +133,8 @@ export async function getAvailability(query: AvailabilityQuery, now = new Date()
     ...(offers.data ?? [])
       .filter((o) => o.appointment_id !== query.ignore)
       .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at) })),
+    // EZ-001: emergency closure blocks every chair
+    ...closureBusy(closures, barberIds),
   ];
 
   const slots = generateSlots({
@@ -326,12 +329,14 @@ export async function getPass(token: string): Promise<PassData | null> {
   let barberId: string | null;
   let preferredId: string | null = null;
   let reschedule: PassData["reschedule"] = null;
+  let closureKey: { column: "ticket_id" | "appointment_id"; id: string };
 
   if (priv.kind === "ticket" && priv.ticket_id) {
     const { data, error: e } = await db.from("queue_tickets").select("*").eq("id", priv.ticket_id).maybeSingle();
     if (e) throw fromDbError(e);
     if (!data) return null;
     booking = mapTicket(data);
+    closureKey = { column: "ticket_id", id: data.id };
     barberId = data.barber_id;
     preferredId = data.preferred_barber_id;
   } else if (priv.kind === "appointment" && priv.appointment_id) {
@@ -339,12 +344,14 @@ export async function getPass(token: string): Promise<PassData | null> {
     if (e) throw fromDbError(e);
     if (!data) return null;
     booking = mapAppointment(data);
+    closureKey = { column: "appointment_id", id: data.id };
     barberId = data.barber_id;
     reschedule = await loadPassReschedule(data);
   } else {
     return null;
   }
 
+  const closure = await loadPassClosure(closureKey.column, closureKey.id);
   const ids = [barberId, preferredId].filter((v): v is string => Boolean(v));
   const { data: barbers, error: be } = ids.length
     ? await db.from("barbers").select("*").in("id", ids)
@@ -360,7 +367,49 @@ export async function getPass(token: string): Promise<PassData | null> {
     barber: barberId ? (byId.get(barberId) ?? null) : null,
     preferredBarber: preferredId ? (byId.get(preferredId) ?? null) : null,
     reschedule,
+    closure,
   };
+}
+
+/** EZ-001: the most recent emergency closure that affected this booking. */
+async function loadPassClosure(column: "ticket_id" | "appointment_id", id: string): Promise<PassData["closure"]> {
+  const db = getAdminSupabase();
+  const { data: impact, error } = await db
+    .from("closure_impacts")
+    .select("closure_id, action")
+    .eq(column, id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw fromDbError(error);
+  if (!impact) return null;
+  const { data: closure, error: ce } = await db
+    .from("shop_closures")
+    .select("starts_at, ends_at, public_message")
+    .eq("id", impact.closure_id)
+    .maybeSingle();
+  if (ce) throw fromDbError(ce);
+  if (!closure) return null;
+  return { startsAt: closure.starts_at, endsAt: closure.ends_at, message: closure.public_message, action: impact.action };
+}
+
+/**
+ * EZ-001: emergency closure windows overlapping [from, to). Every chair is
+ * blocked during these, so callers add them as busy time for each barber.
+ */
+export async function loadClosureWindows(from: Date, to: Date): Promise<Array<{ start: Date; end: Date }>> {
+  const { data, error } = await getAdminSupabase()
+    .from("shop_closures")
+    .select("starts_at, ends_at")
+    .lt("starts_at", to.toISOString())
+    .gt("ends_at", from.toISOString());
+  if (error) throw fromDbError(error);
+  return (data ?? []).map((c) => ({ start: new Date(c.starts_at), end: new Date(c.ends_at) }));
+}
+
+/** Expands shop-wide closure windows into per-chair busy intervals. */
+export function closureBusy(windows: Array<{ start: Date; end: Date }>, barberIds: string[]): BusyInterval[] {
+  return windows.flatMap((w) => barberIds.map((barberId) => ({ barberId, start: w.start, end: w.end })));
 }
 
 /** EZ-002: open offers, whether the customer may pick freely, and where the booking moved from. */

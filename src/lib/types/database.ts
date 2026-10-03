@@ -25,6 +25,9 @@ type PaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
 type BookingKind = "appointment" | "ticket";
 type StaffRole = "owner" | "host" | "barber";
 export type RescheduleReason = "delay" | "closure" | "barber_unavailable" | "early" | "manual";
+export type ClosureReason = "power" | "weather" | "illness" | "emergency" | "other";
+export type TicketCancelReason = "customer" | "shop_closed" | "staff";
+export type ClosureImpactAction = "ticket_cancelled" | "appointment_affected" | "hold_released";
 
 export type Database = {
   __InternalSupabase: {
@@ -49,6 +52,9 @@ export type Database = {
           early_offer_min: number;
           reschedule_cutoff_min: number;
           offer_hold_hours: number;
+          closed_until: string | null;
+          closure_message: string | null;
+          closure_reason: ClosureReason | null;
           shop_phone: string | null;
           shop_address: string | null;
           updated_at: string;
@@ -69,6 +75,9 @@ export type Database = {
           early_offer_min?: number;
           reschedule_cutoff_min?: number;
           offer_hold_hours?: number;
+          closed_until?: string | null;
+          closure_message?: string | null;
+          closure_reason?: ClosureReason | null;
           shop_phone?: string | null;
           shop_address?: string | null;
           updated_at?: string;
@@ -324,6 +333,7 @@ export type Database = {
           amount_due_now_cents: number;
           checked_in_at: string | null;
           notified_at: string | null;
+          cancel_reason: TicketCancelReason | null;
           expected_end_at: string | null;
           called_at: string | null;
           seated_at: string | null;
@@ -350,6 +360,7 @@ export type Database = {
           amount_due_now_cents?: number;
           checked_in_at?: string | null;
           notified_at?: string | null;
+          cancel_reason?: TicketCancelReason | null;
           expected_end_at?: string | null;
           called_at?: string | null;
           seated_at?: string | null;
@@ -524,6 +535,58 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["catalog_changes"]["Insert"]>;
         Relationships: [];
       };
+      shop_closures: {
+        Row: {
+          id: string;
+          starts_at: string;
+          ends_at: string;
+          planned_ends_at: string;
+          reason: ClosureReason;
+          public_message: string;
+          created_by: string | null;
+          created_at: string;
+          reopened_at: string | null;
+          reopened_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          starts_at?: string;
+          ends_at: string;
+          planned_ends_at: string;
+          reason: ClosureReason;
+          public_message: string;
+          created_by?: string | null;
+          created_at?: string;
+          reopened_at?: string | null;
+          reopened_by?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["shop_closures"]["Insert"]>;
+        Relationships: [];
+      };
+      closure_impacts: {
+        Row: {
+          id: string;
+          closure_id: string;
+          appointment_id: string | null;
+          ticket_id: string | null;
+          action: ClosureImpactAction;
+          had_payment: boolean;
+          notified_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          closure_id: string;
+          appointment_id?: string | null;
+          ticket_id?: string | null;
+          action: ClosureImpactAction;
+          had_payment?: boolean;
+          notified_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["closure_impacts"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: {
@@ -616,6 +679,12 @@ export type Database = {
         Returns: Json;
       };
       desk_set_duty: { Args: { p_barber_id: string; p_on_duty: boolean }; Returns: undefined };
+      shop_closed_now: { Args: never; Returns: boolean };
+      closure_overlapping: { Args: { p_starts_at: string; p_ends_at: string }; Returns: string | null };
+      desk_close_shop: { Args: { p_until: string; p_reason: ClosureReason; p_message: string }; Returns: Json };
+      desk_reopen_shop: { Args: never; Returns: Json };
+      desk_mark_closure_notified: { Args: { p_impact_id: string }; Returns: undefined };
+      desk_cancel_affected: { Args: { p_impact_id: string }; Returns: Json };
     };
     Enums: {
       service_category: ServiceCategory;

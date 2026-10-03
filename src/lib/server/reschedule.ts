@@ -8,7 +8,7 @@ import { addDays, localDateString, localDayBounds, zonedParts } from "@/lib/time
 import type { Json, RescheduleReason } from "@/lib/types/database";
 import { BLOCKING_APPOINTMENT_STATUSES, mapShift } from "@/lib/types/domain";
 import { fromDbError } from "./errors";
-import { getSettings } from "./data";
+import { closureBusy, getSettings, loadClosureWindows } from "./data";
 
 /** How many days after the original date the proposal search looks. */
 const SEARCH_DAYS = 7;
@@ -47,7 +47,7 @@ export async function proposeRescheduleSlots(
   const rangeStart = localDayBounds(dates[0]!, tz).start;
   const rangeEnd = localDayBounds(dates[dates.length - 1]!, tz).end;
 
-  const [barbers, shifts, appts, timeOff, offers] = await Promise.all([
+  const [barbers, shifts, appts, timeOff, offers, closures] = await Promise.all([
     db.from("barbers").select("id, is_on_duty").eq("is_active", true),
     db.from("barber_shifts").select("*"),
     db
@@ -67,6 +67,7 @@ export async function proposeRescheduleSlots(
       .gt("expires_at", now.toISOString())
       .lt("starts_at", rangeEnd.toISOString())
       .gt("ends_at", rangeStart.toISOString()),
+    loadClosureWindows(rangeStart, rangeEnd),
   ]);
   for (const r of [barbers, shifts, appts, timeOff, offers]) if (r.error) throw fromDbError(r.error);
 
@@ -79,6 +80,8 @@ export async function proposeRescheduleSlots(
     ...(offers.data ?? [])
       .filter((o) => o.appointment_id !== appt.id)
       .map((o) => ({ barberId: o.barber_id, start: new Date(o.starts_at), end: new Date(o.ends_at) })),
+    // EZ-001: no proposals inside an emergency closure
+    ...closureBusy(closures, (barbers.data ?? []).map((b) => b.id)),
   ];
 
   const barberIds = reason === "early" ? [appt.barber_id] : (barbers.data ?? []).map((b) => b.id);

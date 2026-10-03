@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLiveSettings } from "@/hooks/use-live-settings";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { cn, formatMoney, formatWait } from "@/lib/format";
@@ -40,6 +41,7 @@ import {
   type ShopSettings,
 } from "@/lib/types/domain";
 import { DeskReschedule, type MovedBooking } from "../reschedule/DeskReschedule";
+import { ClosurePanel } from "./ClosurePanel";
 import { SiteHeader } from "../ui/SiteHeader";
 import { Avatar, Badge, Button, Card, Switch, type BadgeTone } from "../ui/primitives";
 
@@ -48,7 +50,7 @@ type Action = "seat" | "complete" | "no_show" | "requeue";
 const APPT_LIVE = new Set(["pending_payment", "confirmed", "checked_in", "called"]);
 
 export function DeskBoard({
-  settings,
+  settings: initialSettings,
   initialBarbers,
   shifts,
   staffName,
@@ -63,6 +65,8 @@ export function DeskBoard({
   origin: string;
 }) {
   const router = useRouter();
+  // EZ-001: closure state (and owner edits) arrive live.
+  const settings = useLiveSettings(initialSettings, "desk-settings");
   const now = useNow(10_000);
   const live = useLiveShop({ initialBarbers, timezone: settings.timezone, channelName: "desk-live" });
   const snapshot = useMemo(
@@ -236,6 +240,15 @@ export function DeskBoard({
             Couldn&apos;t refresh: {live.error}
           </p>
         )}
+
+        <ClosurePanel
+          settings={settings}
+          shifts={shifts}
+          barbers={live.barbers}
+          origin={origin}
+          waitingCount={waiting.length}
+          onChanged={() => void live.refresh()}
+        />
 
         {/* Chairs */}
         <section aria-label="Chairs" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -418,6 +431,7 @@ function deskErrorText(code: string): string {
     barber_required: "Pick a barber first.",
     not_found: "Booking not found.",
     barber_unavailable: "That barber isn't active.",
+    shop_closed: "The shop is closed — reopen it first.",
   };
   return map[code] ?? `Action failed (${code}).`;
 }

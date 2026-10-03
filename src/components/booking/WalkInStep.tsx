@@ -14,14 +14,29 @@ export function WalkInStep({
   barbers,
   selectedBarber,
   timezone,
+  closure = null,
 }: {
   snapshot: QueueSnapshot;
   estimate: WalkInEstimate | null;
   barbers: Barber[];
   selectedBarber: Barber | null;
   timezone: string;
+  /** EZ-001: emergency closure in force. */
+  closure?: { reopens: string; message: string | null } | null;
 }) {
   const byId = new Map(barbers.map((b) => [b.id, b]));
+
+  if (closure) {
+    return (
+      <Card className="flex flex-col items-center border-rose-500/30 p-8 text-center">
+        <DoorClosed className="size-10 text-rose-300" />
+        <p className="mt-3 text-lg font-semibold text-zinc-200">Live queue paused — shop closed</p>
+        <p className="mt-1 max-w-sm text-sm text-zinc-400">
+          We expect to reopen {closure.reopens}. Switch to “Book a time” to reserve a slot after we reopen.
+        </p>
+      </Card>
+    );
+  }
 
   if (snapshot.onDutyIds.length === 0 || !estimate) {
     return (
