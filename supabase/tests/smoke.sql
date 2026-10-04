@@ -776,4 +776,94 @@ do $$ begin assert (select count(*) from barber_breaks) > 0, 'anon reads breaks'
 select pg_temp.expect_error($$insert into barber_breaks (barber_id, weekday, start_time, end_time) values ((select id from barbers limit 1), 2, '10:00', '10:15')$$, 'permission denied for table barber_breaks');
 reset role;
 
+\echo '--- desk_call_next consistency (found by evals/)'
+-- isolate: Danial on duty, no waiting walk-ins, no breaks, no bookings today
+do $$
+declare v_danial uuid := (select id from barbers where slug = 'danial');
+begin
+  update barbers set is_on_duty = true where id = v_danial;
+  update queue_tickets set status = 'cancelled' where status in ('waiting', 'called') and shop_day = shop_today();
+  delete from barber_breaks where barber_id = v_danial;
+  update appointments set status = 'cancelled' where barber_id = v_danial and status in ('confirmed', 'checked_in', 'called', 'pending_payment');
+  update barber_time_off set ends_at = least(ends_at, starts_at + interval '1 second') where barber_id = v_danial;
+end $$;
+
+-- (2) walk-in + rest buffer must fit before the next booking
+do $$
+declare v_danial uuid := (select id from barbers where slug = 'danial'); v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  if v_now_local between time '00:05' and time '22:30' then
+    insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status)
+    values (v_danial, now() + interval '28 minutes', now() + interval '48 minutes', 20, 2500,
+            array[(select id from services where slug='buzz-cut')], 'Buzz Cut', 'Gap Fit', 'confirmed');
+    perform issue_queue_ticket(v_danial, array[(select id from services where slug='buzz-cut')], '{}', 'Buffer Fit', '+60199100001', null, 'cash_on_site');
+    update shop_settings set buffer_after_service_min = 10;
+  end if;
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb; v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  if v_now_local between time '00:05' and time '22:30' then
+    v := desk_call_next((select id from barbers where slug = 'danial'));
+    assert v->>'reason' = 'no_fit', coalesce(v::text, 'null');       -- 20 + 10 rest > 27 free
+    assert (v->>'needed_min')::int = 30, v::text;
+  end if;
+end $$;
+reset role;
+update shop_settings set buffer_after_service_min = 0;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb; v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  if v_now_local between time '00:05' and time '22:30' then
+    v := desk_call_next((select id from barbers where slug = 'danial'));
+    assert v->>'kind' = 'ticket', coalesce(v::text, 'null');       -- 20 fits in 27 without the buffer
+    perform desk_transition('ticket', (v->>'id')::uuid, 'no_show', null);
+  end if;
+end $$;
+reset role;
+
+-- (1) a booking is not called early into the barber's break
+do $$
+declare v_danial uuid := (select id from barbers where slug = 'danial'); v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  update appointments set status = 'cancelled' where barber_id = v_danial and status = 'confirmed';
+  if v_now_local between time '00:05' and time '22:30' then
+    insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status)
+    values (v_danial, now() + interval '8 minutes', now() + interval '28 minutes', 20, 2500,
+            array[(select id from services where slug='buzz-cut')], 'Buzz Cut', 'Into Break', 'confirmed');
+    insert into barber_breaks (barber_id, weekday, start_time, end_time, label)
+    values (v_danial, extract(dow from shop_today())::smallint, v_now_local + interval '3 minutes', v_now_local + interval '33 minutes', 'Soon');
+  end if;
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb; v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  if v_now_local between time '00:05' and time '22:30' then
+    v := desk_call_next((select id from barbers where slug = 'danial'));
+    assert v is null, 'booking at +8 must not be called early into the break at +3: ' || v::text;
+  end if;
+end $$;
+reset role;
+do $$
+begin
+  delete from barber_breaks where barber_id = (select id from barbers where slug = 'danial') and label = 'Soon';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa', false);
+do $$
+declare v jsonb; v_now_local time := (now() at time zone shop_tz())::time;
+begin
+  if v_now_local between time '00:05' and time '22:30' then
+    v := desk_call_next((select id from barbers where slug = 'danial'));
+    assert v->>'kind' = 'appointment', coalesce(v::text, 'null');  -- no break: called up to 10 min early as before
+  end if;
+end $$;
+reset role;
+
 \echo 'ALL SMOKE TESTS PASSED'

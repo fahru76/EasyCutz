@@ -42,3 +42,6 @@ next-env.d.ts
 
 # allow the documented template
 !.env.example
+
+# eval run output (baseline.json is committed)
+/evals/results/

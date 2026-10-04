@@ -188,14 +188,18 @@ function isPendingHoldAlive(a: LiveAppointment, nowMs: number): boolean {
   return a.status !== "pending_payment" || (a.holdExpiresAt !== null && new Date(a.holdExpiresAt).getTime() > nowMs);
 }
 
-/** Moves `start` past any break overlapping [start, start + dur). */
-function pastBreaks(breaks: ReadonlyArray<{ start: number; end: number }>, start: number, durMs: number): number {
+/**
+ * A booking whose START falls in a break waits until the barber is back.
+ * One that starts before a break is served on time (the break moves), matching
+ * the desk: desk_call_next never refuses a due booking because of a later break.
+ */
+function outOfBreaks(breaks: ReadonlyArray<{ start: number; end: number }>, start: number): number {
   let t = start;
   let moved = true;
   while (moved) {
     moved = false;
     for (const b of breaks) {
-      if (t < b.end && b.start < t + durMs) {
+      if (b.start <= t && t < b.end) {
         t = b.end;
         moved = true;
       }
@@ -267,9 +271,9 @@ function buildChairs(input: QueueInput): Map<string, Chair> {
       if (likelyNoShow) continue;
 
       const durMs = a.durationMin * MIN;
-      // EZ-003: a booking that would run into a break waits until the barber is back.
-      const chairReadyAt = pastBreaks(chair.breaks, Math.max(booked, cursor), durMs);
-      const projectedStart = pastBreaks(chair.breaks, Math.max(chairReadyAt, nowMs), durMs);
+      // EZ-003: a booking that would start during a break waits until the barber is back.
+      const chairReadyAt = outOfBreaks(chair.breaks, Math.max(booked, cursor));
+      const projectedStart = outOfBreaks(chair.breaks, Math.max(chairReadyAt, nowMs));
       const projectedEnd = projectedStart + durMs;
       const delayMin = Math.max(0, Math.round((chairReadyAt - booked) / MIN));
       chair.appointments.push({
@@ -357,7 +361,10 @@ function simulate(input: QueueInput, extra?: { durationMin: number; preferredBar
       etas.set(ticket.id, { ticketId: ticket.id, position: index + 1, aheadCount, barberId: null, startsAt: null, waitMin: null });
       return;
     }
-    pick.chair.freeAt = pick.start + (ticket.durationMin + bufferMin) * MIN;
+    // The desk calls the oldest walk-in that FITS before the next booking/break, so a
+    // later, shorter cut can take an earlier gap: keep placed walk-ins as blocks
+    // instead of pushing the whole chair's free time forward.
+    pick.chair.blocks.push({ start: pick.start, end: pick.start + (ticket.durationMin + bufferMin) * MIN });
     etas.set(ticket.id, {
       ticketId: ticket.id,
       position: index + 1,

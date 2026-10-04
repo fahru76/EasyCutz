@@ -1,0 +1,37 @@
+{
+  "acceptedAt": "2026-10-04T12:20:39.284Z",
+  "seeds": {
+    "scenarios": 20261004,
+    "scenarioCount": 60,
+    "slots": 7310
+  },
+  "metrics": {
+    "cases": {
+      "estimator": 75,
+      "slots": 68,
+      "total": 143
+    },
+    "predictions": 546,
+    "accuracy": {
+      "maeMin": 13.61,
+      "p95AbsErrorMin": 49,
+      "within10Pct": 73.1,
+      "biasMin": 4.58,
+      "walkInMaeMin": 17.42,
+      "bookingMaeMin": 7.96
+    },
+    "invariants": {
+      "checks": 2395,
+      "failed": 0,
+      "passRatePct": 100
+    },
+    "latency": {
+      "estimatorP95Ms": 0.144,
+      "slotsP95Ms": 1.687
+    },
+    "cost": {
+      "perFinishedTaskMyr": 0,
+      "note": "no model or paid API calls"
+    }
+  }
+}

@@ -271,3 +271,29 @@ describe("queue estimator with breaks (EZ-003)", () => {
     expect(blocks[0]?.start.toISOString()).toBe("2026-10-06T05:00:00.000Z");
   });
 });
+
+describe("estimator matches the desk's call-next rules (found by evals/)", () => {
+  it("lets a later, shorter walk-in take a gap the first one doesn't fit", () => {
+    // booking in 34 min (70 min long): 40-min t1 can't fit before it, 20-min t2 can
+    const snap = buildQueueSnapshot({
+      now,
+      barbers: [barber("a", 1)],
+      tickets: [ticket(1, { durationMin: 40 }), ticket(2, { durationMin: 20 })],
+      appointments: [appt("p1", "a", 34, 70)],
+    });
+    expect(snap.etas.get("t2")?.waitMin).toBe(0);
+    expect(snap.etas.get("t1")?.waitMin).toBe(104); // after the booking
+  });
+
+  it("serves a booking that starts before a break on time", () => {
+    const snap = buildQueueSnapshot({
+      now,
+      barbers: [barber("a", 1)],
+      tickets: [],
+      appointments: [appt("p1", "a", 20, 30)],
+      blocks: [{ barberId: "a", start: new Date(now.getTime() + 30 * 60000), end: new Date(now.getTime() + 60 * 60000), label: "Break" }],
+    });
+    expect(snap.appointmentEtas.get("p1")?.projectedStart.toISOString()).toBe(minutesFromNow(20));
+    expect(snap.appointmentEtas.get("p1")?.delayMin).toBe(0);
+  });
+});
