@@ -17,11 +17,16 @@ exception when others then
 end;
 $$;
 
--- Next Tuesday 14:00 shop-local (always open in the seed roster).
+-- A Tuesday 4-10 days ahead, at a shop-local time (Tuesday is always open in the
+-- seed roster). Never within 3 days, so it cannot overlap EZ-001's closure window
+-- (tomorrow .. today + 3); EZ-001's far booking uses today + 11 for the same reason.
+-- Regression: with 1-7 days, a Monday run booked "next Tuesday" = tomorrow and
+-- collided with EZ-001's own bookings.
 create or replace function pg_temp.next_tuesday_at(p_hhmm text)
 returns timestamptz language sql as $$
   select ((public.shop_today()
-           + coalesce(nullif((9 - extract(dow from public.shop_today())::int) % 7, 0), 7))::text
+           + (select case when d < 4 then d + 7 else d end
+                from (select (9 - extract(dow from public.shop_today())::int) % 7 as d) x))::text
           || ' ' || p_hhmm)::timestamp at time zone public.shop_tz();
 $$;
 
@@ -505,8 +510,8 @@ begin
 
   -- an appointment well after the closure, holding an offer inside it
   insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status)
-  values (v_barber, ((shop_today() + 10)::text || ' 11:00')::timestamp at time zone shop_tz(),
-          ((shop_today() + 10)::text || ' 11:20')::timestamp at time zone shop_tz(),
+  values (v_barber, ((shop_today() + 11)::text || ' 11:00')::timestamp at time zone shop_tz(),
+          ((shop_today() + 11)::text || ' 11:20')::timestamp at time zone shop_tz(),
           20, 2500, array[v_cut], 'Buzz Cut', 'Far F.', 'confirmed')
   returning id into v_far;
   insert into reschedule_offers (appointment_id, barber_id, starts_at, ends_at, reason, expires_at)

@@ -22,6 +22,11 @@ every correction or surprise (see `CLAUDE.md` → Task management).
   statements when time matters.
 - **Tests that use `now() + N minutes` break near midnight** (the EZ-011 smoke section fails from
   about 23:35). → Guard time-relative SQL tests with a local-time window, or use fixed future dates.
+- **Weekday-relative test dates collide on some days.** `next_tuesday_at()` returned 1-7 days
+  ahead, so on a Monday "next Tuesday" was tomorrow and clashed with EZ-001's own "tomorrow"
+  bookings: the smoke suite failed every Monday and passed the rest of the week. → Keep relative
+  dates from different sections in disjoint ranges, and run SQL tests on every weekday with a
+  pinned clock (`npm run test:db:week`, libfaketime) rather than trusting today's date.
 - **A UI clock that ticks every 10 s judged fresh server data as "not started yet"** (desk break
   state lagged). → Compare server timestamps against `max(clock tick, last refresh time)`.
 
