@@ -56,6 +56,11 @@ these rules bind the first feature that adds one.
   tokens, latency, cost and outcome, canary prompt changes, and track cost per finished task
   rather than per call.
 
+## Source of truth
+- **The GitHub repo (`fahru76/EasyCutz`) is the only working copy.** The local PC folder
+  (`C:\EasyCutz`) is retired (2026-10-05): never read from, write to or sync it. Work on a
+  branch, push to GitHub, merge to `main` there. "Deliver" means pushed and merged on GitHub.
+
 ## Task management
 1. **Plan first:** write the plan in `tasks/todo.md` with checkable items.
 2. **Eval first:** add the failing case to `evals/` (or a SQL smoke test) before changing logic.

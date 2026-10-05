@@ -49,3 +49,6 @@ every correction or surprise (see `CLAUDE.md` → Task management).
   metric regression) and confirm the gate goes red before relying on it.
 - **Stale lock files in the Windows folder:** a `git status` without delete permission left an
   empty `.git/index.lock`. → Request delete permission before any git command that writes there.
+  *(Moot since 2026-10-05: the PC copy is retired.)*
+- **One source of truth (2026-10-05):** the user retired the `C:\EasyCutz` PC copy. → Work only
+  in the GitHub repo; never plan a "sync the PC folder" step.
