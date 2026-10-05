@@ -1,0 +1,39 @@
+# Runs the deterministic gate from CLAUDE.md §5: types, lint, unit tests and evals.
+# Needs no secrets: `npm run check` never talks to Supabase or Stripe.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run check
+
+      # Eval numbers for the run (MAE, p95, invariant failures), kept for reading a red gate.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: evals/results/latest.json
+          if-no-files-found: ignore
