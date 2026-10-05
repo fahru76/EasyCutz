@@ -40,6 +40,8 @@ rules are recorded for the first AI feature.
 - Production tracing of API routes (route, status, latency, error code; no PII).
 - EZ-005 learned durations. This harness is what will prove it helps (target: lower MAE).
 - Make the EZ-011 smoke section time-independent (it fails if run between ~23:35 and midnight).
+  CI avoids it by pinning the clock to 10:00 (`npm run test:db:week`); real-clock local runs
+  still hit it.
 
 ### Review
 - **Eval set:** 143 cases (75 queue scenarios, 68 slot cases), 546 graded predictions, 2,395 hard
@@ -57,3 +59,29 @@ rules are recorded for the first AI feature.
 - **Yardstick fixes made first:** the simulator freed chairs in the past and didn't mirror the
   desk's early-call rule. Both were fixed before baselining.
 - **Remaining error** is from cuts running longer or shorter than planned: the EZ-005 target.
+
+---
+
+## Task: Run the SQL smoke suite in CI (2026-10-05)
+
+**Goal.** `npm run test:db` gates every PR and every push to `main`, like `npm run check`.
+
+### Plan
+- [x] Run `npm run test:db` locally first. It **failed on today's date (a Monday)**: EZ-001's
+      "tomorrow 15:00" booking collided with an earlier section's "next Tuesday" bookings.
+- [x] Reproduce with a pinned clock (libfaketime) on all 7 weekdays × 5 times of day: only
+      Mondays fail, plus the known 23:35-midnight EZ-011 window on every day.
+- [x] Fix the yardstick (test-only): `next_tuesday_at()` now lands 4-10 days ahead (never
+      inside EZ-001's tomorrow..+3 window); EZ-001's far booking moved from +10 to +11 days.
+- [x] `supabase/tests/run-weekdays.sh` + `npm run test:db:week`: the suite once per weekday at
+      10:00 shop-local, so CI is deterministic and catches weekday-only bugs.
+- [x] CI: new `db` job (PostgreSQL server + libfaketime from apt, then `npm run test:db:week`).
+- [x] Prove the gate can fail: the old `smoke.sql` fails Monday in the sweep; the fix passes all 7.
+
+### Review
+- **Bug found by the gate itself:** the SQL smoke suite failed every Monday. Fixed in the test
+  only; no migration or app code changed.
+- **Verified locally:** `test:db:week` passes 7/7 with the fix and fails Monday (exit 1) without
+  it; real-clock `npm run test:db` passes on Monday 20:28 shop-local.
+- **Not fixed:** the EZ-011 near-midnight window (scenario needs a same-day appointment 25 min
+  ahead). CI is immune because the clock is pinned; local real-clock runs are not.

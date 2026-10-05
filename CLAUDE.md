@@ -42,7 +42,8 @@ these rules bind the first feature that adds one.
 
 ## 5. Verify in code — applies now
 - Deterministic checks before judgment: `npm run check` (types, lint, unit tests, evals),
-  `npm run test:db` (SQL smoke), then browser E2E for UI flows.
+  `npm run test:db` (SQL smoke; CI runs it per weekday on a pinned clock via `npm run test:db:week`),
+  then browser E2E for UI flows.
 - Read a failure before re-running. A green rerun after a blind edit is not evidence.
 - Prove a new gate can fail: break it on purpose once, see it go red, then restore.
 - Never hide or soften a failed verification in a report.
