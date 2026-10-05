@@ -28,7 +28,7 @@ import type { Barber, Break, LiveAppointment, LiveBooking, LiveTicket, TimeOff }
 /** Floor for "time left" on a service that is still within its expected end. */
 export const MIN_REMAINING_MIN = 1;
 /** When a service runs over: assume at least this much is still left… */
-export const OVERRUN_MIN_REMAINING_MIN = 5;
+export const OVERRUN_MIN_REMAINING_MIN = 8;
 /** …or this fraction of the planned duration, whichever is larger. */
 export const OVERRUN_FRACTION = 0.25;
 /** A booked customer who hasn't checked in this late, while the chair is free, is treated as a likely no-show. */
