@@ -30,6 +30,31 @@ returns timestamptz language sql as $$
           || ' ' || p_hhmm)::timestamp at time zone public.shop_tz();
 $$;
 
+-- Sections built on "now() + N minutes" need the rest of the shop day ahead of them;
+-- near midnight that time lands on tomorrow's shop day. These switch the shop to a
+-- fixed-offset zone where it is 10:xx local (clear of every seeded break, the earliest
+-- being 12:45), then restore it. Shop-day logic all goes through shop_tz().
+-- Regression: EZ-011 failed every night from ~23:35 to midnight shop-local.
+create or replace function pg_temp.pin_shop_to_morning()
+returns text language plpgsql as $$
+declare
+  v_off int := 10 - extract(hour from now() at time zone 'UTC')::int;
+  v_tz  text;
+begin
+  if v_off < -12 then v_off := v_off + 24; end if;  -- Etc/GMT zones span UTC-12 .. UTC+14
+  -- POSIX sign: Etc/GMT-8 is UTC+8
+  v_tz := 'Etc/GMT' || case when v_off > 0 then '-' || v_off when v_off < 0 then '+' || -v_off else '' end;
+  perform set_config('smoke.saved_tz', (select timezone from public.shop_settings where id = 1), false);
+  update public.shop_settings set timezone = v_tz where id = 1;
+  assert extract(hour from now() at time zone public.shop_tz()) = 10, format('pinned %s', v_tz);
+  return v_tz;
+end;
+$$;
+create or replace function pg_temp.restore_shop_tz()
+returns void language sql as $$
+  update public.shop_settings set timezone = current_setting('smoke.saved_tz') where id = 1;
+$$;
+
 -- Earlier sections were written before EZ-003; they book fixed times that the
 -- seeded lunches would block. Breaks get their own section at the end.
 do $$ begin assert (select count(*) from barber_breaks) > 0, 'seed adds breaks'; end $$;
@@ -238,6 +263,7 @@ select pg_temp.expect_error(
   'invalid_transition');
 
 \echo '--- EZ-011 service timing'
+select pg_temp.pin_shop_to_morning() is not null as pinned;
 -- Chandra: next booked appointment in ~25 min; a 45-min and a 20-min walk-in wait for her.
 insert into appointments (barber_id, starts_at, ends_at, duration_min, price_cents, service_ids, service_summary, display_name, status)
 select b.id, now() + interval '25 minutes', now() + interval '70 minutes', 45, 5000,
@@ -302,6 +328,8 @@ end $$;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
 select pg_temp.expect_error($$select desk_set_expected_end('ticket', gen_random_uuid(), 'extend', 5)$$, 'forbidden');
 reset role;
+select pg_temp.restore_shop_tz();
+do $$ begin assert public.shop_tz() = current_setting('smoke.saved_tz'), public.shop_tz(); end $$;
 
 \echo '--- EZ-009 owner admin'
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000cc', 'owner@example.com') on conflict do nothing;
@@ -685,7 +713,10 @@ begin
   update shop_settings set buffer_after_service_min = 0;
 end $$;
 
--- desk: take a break, call-next refused, back now
+-- desk: take a break, call-next refused, back now. Pinned to 10:xx: the real clock
+-- can sit inside Chandra's seeded lunch / Friday prayers (already_on_break), or near
+-- midnight where the Danial check below would skip itself.
+select pg_temp.pin_shop_to_morning() is not null as pinned;
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb', false);
 select pg_temp.expect_error($$select desk_take_break((select id from barbers where slug='chandra'), 15)$$, 'forbidden');
@@ -750,6 +781,7 @@ begin
   end if;
 end $$;
 reset role;
+select pg_temp.restore_shop_tz();
 
 -- owner edits breaks (audited); host cannot
 set role authenticated;

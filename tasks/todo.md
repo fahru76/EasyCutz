@@ -39,9 +39,7 @@ rules are recorded for the first AI feature.
 ### Out of scope (follow-ups)
 - Production tracing of API routes (route, status, latency, error code; no PII).
 - EZ-005 learned durations. This harness is what will prove it helps (target: lower MAE).
-- Make the EZ-011 smoke section time-independent (it fails if run between ~23:35 and midnight).
-  CI avoids it by pinning the clock to 10:00 (`npm run test:db:week`); real-clock local runs
-  still hit it.
+- ~~Make the EZ-011 smoke section time-independent~~: done 2026-10-05 (see the task below).
 
 ### Review
 - **Eval set:** 143 cases (75 queue scenarios, 68 slot cases), 546 graded predictions, 2,395 hard
@@ -85,3 +83,26 @@ rules are recorded for the first AI feature.
   it; real-clock `npm run test:db` passes on Monday 20:28 shop-local.
 - **Not fixed:** the EZ-011 near-midnight window (scenario needs a same-day appointment 25 min
   ahead). CI is immune because the clock is pinned; local real-clock runs are not.
+
+---
+
+## Task: Fix the smoke suite's time-of-day windows (2026-10-05)
+
+**Goal.** `npm run test:db` passes at any time of day, not just in CI's pinned slot.
+
+### Plan
+- [x] Failing case first: `test:db:week` also runs at 23:50 shop-local. On the old SQL it fails
+      on all 7 days at EZ-011 (`called the cut that fits`).
+- [x] Fix: `pg_temp.pin_shop_to_morning()` / `pg_temp.restore_shop_tz()` around EZ-011. The
+      shop timezone becomes an `Etc/GMT±N` zone where it is 10:xx local, then is restored.
+      No skips; the section always runs.
+- [x] Hourly grid (every hour at :50, plus 00:00, 00:01, 12:45, 13:45, 14:29, 23:35, 23:59) on
+      all 7 days found a second window: EZ-003 take-break inside Chandra's lunch / Friday
+      prayers. Same fix around that block. Pinned to 10:xx, the Danial check there also stops
+      skipping itself near midnight.
+- [x] `run-weekdays.sh` cleans up the `/dev/shm` entries libfaketime leaks.
+
+### Review
+- **Grid:** 217/217 runs pass (31 times × 7 days). Default sweep: 14/14, 0 leaked entries.
+- **Gate proven:** old `smoke.sql` fails the default sweep at 23:50 on every day (exit 1).
+- **Test-only:** no migration or app code changed. `npm run check` passes.
