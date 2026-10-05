@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:db": "bash supabase/tests/run-local.sh",
+    "test:db:week": "bash supabase/tests/run-weekdays.sh",
     "check": "npm run typecheck && npm run lint && npm run test && npm run eval",
     "eval": "vitest run --config vitest.eval.config.mts",
     "eval:baseline": "EVAL_UPDATE_BASELINE=1 vitest run --config vitest.eval.config.mts"

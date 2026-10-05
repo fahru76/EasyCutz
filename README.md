@@ -119,7 +119,12 @@ npm run build && npm start
 npm run check       # next typegen + tsc --noEmit, eslint, vitest (25 unit tests)
 npm run test:db     # applies migrations + seed to a throwaway local Postgres and runs SQL smoke tests
                     # needs PostgreSQL 15+ binaries (Linux/macOS/WSL)
+npm run test:db:week  # the same suite once per weekday, clock pinned to 10:00 shop-local
+                      # also needs libfaketime (apt-get install faketime); this is what CI runs
 ```
+
+CI (`.github/workflows/check.yml`) runs `npm run check` and `npm run test:db:week` on every pull
+request and every push to `main`.
 
 ## Customising
 

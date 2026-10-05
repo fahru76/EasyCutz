@@ -37,3 +37,24 @@ jobs:
           name: eval-results
           path: evals/results/latest.json
           if-no-files-found: ignore
+
+  # SQL smoke suite (migrations + seed + supabase/tests/smoke.sql) on a throwaway
+  # Postgres, once per weekday with the clock pinned (see supabase/tests/run-weekdays.sh).
+  db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install PostgreSQL server and libfaketime
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends faketime
+          if ! ls -d /usr/lib/postgresql/*/bin >/dev/null 2>&1; then
+            sudo apt-get install -y -q --no-install-recommends postgresql
+          fi
+          pg_bin="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          "$pg_bin/postgres" --version
+          echo "PG_BIN=$pg_bin" >> "$GITHUB_ENV"
+
+      - run: npm run test:db:week
