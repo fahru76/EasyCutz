@@ -20,8 +20,16 @@ every correction or surprise (see `CLAUDE.md` → Task management).
 - **`now()` is fixed for a whole transaction.** An end-break followed by a check inside the same
   `do $$` block saw the break still active. → In SQL tests, put "act" and "assert" in separate
   statements when time matters.
-- **Tests that use `now() + N minutes` break near midnight** (the EZ-011 smoke section fails from
-  about 23:35). → Guard time-relative SQL tests with a local-time window, or use fixed future dates.
+- **Tests that use `now() + N minutes` break near midnight** (the EZ-011 smoke section failed from
+  about 23:35), **and inside seeded breaks** (EZ-003's take-break failed at 13:45-14:30, Chandra's
+  lunch). → Don't skip by time window. Wrap the section in `pg_temp.pin_shop_to_morning()` /
+  `pg_temp.restore_shop_tz()`, which switch the shop to a fixed-offset zone where it is 10:xx local.
+- **Sweep the clock, not one sample.** Two runs a day found the midnight bug; an hourly grid on all
+  7 days found the lunchtime one. → Before trusting a time fix, run
+  `SMOKE_TIMES="00:50 01:50 ... 23:50" npm run test:db:week` once.
+- **libfaketime 0.9.10 leaks `/dev/shm` segments** (one per faked process); after ~5,000 every
+  run failed with `sem_open failed`. It has no `FAKETIME_DISABLE_SHM`. → `run-weekdays.sh`
+  removes the entries it created; read a failure's own log before blaming the test.
 - **Weekday-relative test dates collide on some days.** `next_tuesday_at()` returned 1-7 days
   ahead, so on a Monday "next Tuesday" was tomorrow and clashed with EZ-001's own "tomorrow"
   bookings: the smoke suite failed every Monday and passed the rest of the week. → Keep relative

@@ -39,7 +39,8 @@ jobs:
           if-no-files-found: ignore
 
   # SQL smoke suite (migrations + seed + supabase/tests/smoke.sql) on a throwaway
-  # Postgres, once per weekday with the clock pinned (see supabase/tests/run-weekdays.sh).
+  # Postgres, on every weekday at 10:00 and 23:50 with the clock pinned
+  # (see supabase/tests/run-weekdays.sh).
   db:
     runs-on: ubuntu-latest
     timeout-minutes: 15
