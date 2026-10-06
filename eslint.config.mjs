@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Static GitHub Pages demo: a Vite SPA with its own typecheck (npm run demo:typecheck).
+    "demo/**",
+    "dist-demo/**",
   ]),
 ]);
 

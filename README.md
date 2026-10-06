@@ -4,6 +4,7 @@ Barbershop booking + live walk-in queue. Customers either **book an exact time**
 
 - **Stack:** Next.js 16 (App Router) · TypeScript (strict) · Tailwind CSS v4 · Framer Motion · Lucide · Zustand · Supabase (Postgres, Auth, Realtime) · Stripe Checkout (card + FPX, MYR)
 - **Look:** dark luxury, zinc-950 with amber-500, Plus Jakarta Sans plus JetBrains Mono (self-hosted), mobile-first
+- **Live prototype:** https://fahru76.github.io/EasyCutz/ (sample data, runs entirely in your browser; see [Prototype demo](#prototype-demo-github-pages))
 
 ## Features
 
@@ -125,6 +126,30 @@ npm run test:db:week  # the same suite on every weekday at 10:00 and 23:50 shop-
 
 CI (`.github/workflows/check.yml`) runs `npm run check` and `npm run test:db:week` on every pull
 request and every push to `main`.
+
+## Prototype demo (GitHub Pages)
+
+`demo/` builds a static, click-through prototype of the **real** app for GitHub Pages:
+
+- the real pages and components from `src/app` and `src/components`, unchanged;
+- the real API route handlers (`src/app/api/**`), served inside the browser instead of over the network;
+- the real database: `supabase/migrations/*.sql` + `supabase/seed.sql` run in
+  [PGlite](https://pglite.dev) (Postgres compiled to WebAssembly) in a Web Worker, stored in the
+  visitor's IndexedDB and shared by all their open tabs (so the Quick-Desk tab and a customer pass
+  tab update each other).
+
+Demo-only differences: sample walk-ins are added on first load, the shop is open 24/7 so the queue
+can be tried at any hour, you are signed in as a demo owner, and online payment is off (Pay at the
+shop only). Nothing is sent to Supabase or Stripe. **Reset demo** in the top bar restores the sample data.
+
+```bash
+npm run demo:dev        # local dev server
+npm run demo:typecheck  # tsc for demo/
+DEMO_BASE=/EasyCutz/ npm run demo:build   # static site in dist-demo/
+```
+
+`.github/workflows/pages.yml` builds and deploys it on every push to `main`. One-time setup:
+**Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## Customising
 

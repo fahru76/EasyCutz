@@ -1,0 +1,8 @@
+@import "../../src/app/globals.css";
+@source "../../src";
+@source "./";
+
+:root {
+  --font-jakarta: "Plus Jakarta Sans Variable";
+  --font-jetbrains: "JetBrains Mono Variable";
+}

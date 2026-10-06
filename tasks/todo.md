@@ -5,6 +5,40 @@ and add a **Review** section when a task is done.
 
 ---
 
+## Task: Prototype demo on GitHub Pages (2026-10-06)
+
+**Goal.** A public click-through prototype of the real app at https://fahru76.github.io/EasyCutz/,
+with no Supabase or Stripe. GitHub Pages is static, so the server parts run in the browser.
+
+### Plan
+- [x] Approach: reuse the real code, don't fork it. Vite SPA in `demo/` that renders the real pages
+      (`src/app/**`), runs the real API handlers (`src/app/api/**`) in-browser, and runs the real
+      SQL (`supabase/migrations` + `seed.sql`) in PGlite (Postgres → WASM) in a shared Web Worker.
+- [x] Fake Supabase client (`demo/src/fake/supabase.ts`): only the query-builder surface the app uses;
+      rows returned as Postgres JSON (same shape as PostgREST); RPCs typed from `pg_catalog`;
+      "realtime" = notify on every write, across tabs via BroadcastChannel.
+- [x] Shims for `next/navigation`, `next/link`, `next/headers`, `next/server`, `server-only`, Stripe.
+- [x] Demo-only data: signed-in demo owner, sample walk-ins, shop open 24/7, payments off, Reset.
+- [x] Keep the main gate unaffected: `demo/` excluded from root tsc/eslint; own `npm run demo:typecheck`.
+- [x] Pages workflow (`.github/workflows/pages.yml`), README section.
+- [x] Verify in a real browser, served under `/EasyCutz/` with the 404.html fallback like Pages.
+
+### Review
+- **Browser E2E (headless Chromium, served like Pages):** scheduled booking → pass with QR;
+  walk-in → ticket W-5 with live ETA; Quick-Desk in a second tab sees it; Call Next / Seat Customer
+  work and the customer's pass updates live (3 ahead → 2 ahead); owner admin loads; sign out → login
+  → sign in; Reset demo restores the sample queue; deep-link reload of a pass works; no horizontal
+  scroll at 390 px; no console errors.
+- **Found and fixed while verifying:** zero-argument RPCs failed ("bind message supplies 1
+  parameters") → only bind the argument object when used. Page loads took ~5 s because PGlite flushed
+  IndexedDB after every query → `relaxedDurability: true` (pass 0.3 s, desk 0.4–1 s, cold reload 2 s).
+  Fonts failed to load via CSS `@import` → imported from JS.
+- **Gates:** `npm run check` green (types, lint, 60 unit tests, evals); `npm run demo:typecheck` clean.
+- **Not verified:** the Pages deploy itself (needs Settings → Pages → Source: GitHub Actions, then a
+  push to `main`). Bundle is ~18 MB uncompressed (PGlite WASM + data), first visit ~3–5 s.
+
+---
+
 ## Task: Apply the "Staff AI Engineer" operating guide (2026-10-04)
 
 **Goal.** Make every change to EasyCutz's predictive logic *measured*, not eyeballed.

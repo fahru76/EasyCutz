@@ -67,3 +67,7 @@ every correction or surprise (see `CLAUDE.md` → Task management).
   in the GitHub repo; never plan a "sync the PC folder" step.
 - **Strict git rule (2026-10-06):** never run git on the PC or any other device, only on GitHub
   or in the cloud session. → Check the cloud clone and GitHub yourself; don't ask Fahru to check.
+- **Static demo of a server app (2026-10-06):** run the real SQL in PGlite and the real route
+  handlers in the browser instead of hand-writing mocks. → One source of behaviour; the demo can't
+  drift from production logic. PGlite + IndexedDB needs `relaxedDurability: true` or every query
+  waits on a disk flush.

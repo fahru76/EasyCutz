@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext", "webworker"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/lib/supabase/browser": ["./src/fake/supabase.ts"],
+      "@/lib/supabase/admin": ["./src/fake/supabase.ts"],
+      "@/lib/supabase/server": ["./src/fake/supabase.ts"],
+      "server-only": ["./src/shims/empty.ts"],
+      "next/navigation": ["./src/shims/next-navigation.ts"],
+      "next/link": ["./src/shims/next-link.tsx"],
+      "next/headers": ["./src/shims/next-headers.ts"],
+      "next/server": ["./src/shims/next-server.ts"],
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.mts", "../next-env.d.ts"]
+}
