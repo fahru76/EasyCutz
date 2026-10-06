@@ -65,3 +65,5 @@ every correction or surprise (see `CLAUDE.md` → Task management).
   *(Moot since 2026-10-05: the PC copy is retired.)*
 - **One source of truth (2026-10-05):** the user retired the `C:\EasyCutz` PC copy. → Work only
   in the GitHub repo; never plan a "sync the PC folder" step.
+- **Strict git rule (2026-10-06):** never run git on the PC or any other device, only on GitHub
+  or in the cloud session. → Check the cloud clone and GitHub yourself; don't ask Fahru to check.

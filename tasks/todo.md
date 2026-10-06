@@ -34,7 +34,8 @@ rules are recorded for the first AI feature.
       tolerance. Add it to `npm run check`.
 - [x] Verify: run it, read the numbers, prove the gate catches a deliberate regression, then
       revert that regression.
-- [x] Deliver: commit, merge to `main`, sync `C:\EasyCutz`, update the project status doc.
+- [x] Deliver: commit, merge to `main`, update the project status doc. (The `C:\EasyCutz` sync
+      step done at the time is retired: git runs only on GitHub or in the cloud.)
 
 ### Out of scope (follow-ups)
 - Production tracing of API routes (route, status, latency, error code; no PII).

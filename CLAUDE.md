@@ -61,6 +61,9 @@ these rules bind the first feature that adds one.
 - **The GitHub repo (`fahru76/EasyCutz`) is the only working copy.** The local PC folder
   (`C:\EasyCutz`) is retired (2026-10-05): never read from, write to or sync it. Work on a
   branch, push to GitHub, merge to `main` there. "Deliver" means pushed and merged on GitHub.
+- **Strict rule (2026-10-06): git runs only on GitHub or in a cloud session.** Never run git
+  (clone, commit, push, pull, sync) on Fahru's PC or any other device, and never stage files
+  from a device to do git work.
 
 ## Task management
 1. **Plan first:** write the plan in `tasks/todo.md` with checkable items.
