@@ -1,7 +1,10 @@
 /** Tiny history-based router shared by the next/navigation and next/link shims. */
 
-/** "" locally, "/EasyCutz" on GitHub Pages. */
-export const BASE = import.meta.env.BASE_URL.replace(/\/+$/, "");
+/**
+ * Path the app is served under: "" locally, "/EasyCutz" on GitHub Pages. Resolved at runtime so a
+ * relative build (base "./") also works wherever it is hosted.
+ */
+export const BASE = new URL(import.meta.env.BASE_URL, document.baseURI).pathname.replace(/\/+$/, "");
 
 export const NAVIGATE_EVENT = "demo:navigate";
 export const REFRESH_EVENT = "demo:refresh";
@@ -9,7 +12,7 @@ export const REFRESH_EVENT = "demo:refresh";
 /** Path inside the app ("/pass/abc"), without the Pages base. */
 export function appPath(pathname: string = location.pathname): string {
   const p = BASE && pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
-  return p === "" ? "/" : p;
+  return p === "" || p === "/index.html" ? "/" : p;
 }
 
 /** Turns an href ("/desk", "/EasyCutz/pass/x?y=1" or a same-origin URL) into an app path + query. */

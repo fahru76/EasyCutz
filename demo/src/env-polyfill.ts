@@ -1,5 +1,5 @@
 // App code reads process.env lazily; give it the demo's public origin (incl. the Pages base path).
-const base = import.meta.env.BASE_URL.replace(/\/+$/, "");
+const base = new URL(import.meta.env.BASE_URL, document.baseURI).pathname.replace(/\/+$/, "");
 const g = globalThis as unknown as { process?: { env: Record<string, string | undefined> } };
 g.process = {
   env: {
