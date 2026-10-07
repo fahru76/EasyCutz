@@ -2,10 +2,12 @@
 
 import { CalendarDays, CalendarX2, Clock, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { apiErrorMessage } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 import { cn, formatDuration } from "@/lib/format";
 import { isWorkingDay } from "@/lib/slots";
 import { addDays, formatClock, formatDayLabel, localDateString } from "@/lib/time";
-import type { ApiError, Barber, Shift, ShopSettings, TimeSlot } from "@/lib/types/domain";
+import type { Barber, Shift, ShopSettings, TimeSlot } from "@/lib/types/domain";
 import { useBookingStore } from "@/store/booking-store";
 import { Button, Skeleton } from "../ui/primitives";
 import { TimeSlotPicker } from "./TimeSlotPicker";
@@ -20,7 +22,8 @@ type LoadState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "ready"; data: AvailabilityResponse }
-  | { kind: "error"; message: string };
+  /** body: the API error body, "network" for a failed request, null for an unreadable reply. */
+  | { kind: "error"; body: unknown };
 
 
 export function ScheduleStep({
@@ -34,6 +37,8 @@ export function ScheduleStep({
   barbers: Barber[];
   durationMin: number;
 }) {
+  const { t, locale, format } = useI18n();
+  const sc = t.booking.schedule;
   const serviceIds = useBookingStore((s) => s.serviceIds);
   const addonIds = useBookingStore((s) => s.addonIds);
   const barberId = useBookingStore((s) => s.barberId);
@@ -51,9 +56,9 @@ export function ScheduleStep({
     () =>
       Array.from({ length: settings.bookingHorizonDays + 1 }, (_, i) => {
         const d = addDays(today, i);
-        return { date: d, open: isWorkingDay(d, candidateIds, shifts), label: formatDayLabel(d, today) };
+        return { date: d, open: isWorkingDay(d, candidateIds, shifts), label: formatDayLabel(d, today, locale) };
       }),
-    [today, settings.bookingHorizonDays, candidateIds, shifts],
+    [today, settings.bookingHorizonDays, candidateIds, shifts, locale],
   );
 
   // Default to the first open day.
@@ -83,14 +88,17 @@ export function ScheduleStep({
     fetch(`/api/availability?${query}`, { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
         const body: unknown = await res.json();
-        if (!res.ok) throw new Error((body as ApiError).message ?? "Couldn't load times");
+        if (!res.ok) {
+          setResult({ key: requestKey, outcome: { kind: "error", body } });
+          return;
+        }
         setResult({ key: requestKey, outcome: { kind: "ready", data: body as AvailabilityResponse } });
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         setResult({
           key: requestKey,
-          outcome: { kind: "error", message: err instanceof Error ? err.message : "Couldn't load times" },
+          outcome: { kind: "error", body: err instanceof TypeError ? "network" : null },
         });
       });
     return () => controller.abort();
@@ -113,9 +121,9 @@ export function ScheduleStep({
     <div className="space-y-6">
       <div>
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-          <CalendarDays className="size-4 text-amber-500" /> Date
+          <CalendarDays className="size-4 text-amber-500" /> {sc.date}
         </h3>
-        <div className="no-scrollbar -mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1" role="listbox" aria-label="Date">
+        <div className="no-scrollbar -mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1" role="listbox" aria-label={sc.date}>
           {days.map((d) => {
             const selected = d.date === date;
             return (
@@ -139,7 +147,7 @@ export function ScheduleStep({
                 </span>
                 <span className="font-mono text-xl font-bold tabular">{d.label.day}</span>
                 <span className={cn("text-[10px]", selected ? "text-zinc-800" : "text-zinc-500")}>
-                  {d.open ? d.label.month : "Closed"}
+                  {d.open ? d.label.month : sc.closed}
                 </span>
               </button>
             );
@@ -150,10 +158,10 @@ export function ScheduleStep({
       <div>
         <h3 className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wider text-zinc-400">
           <span className="flex items-center gap-2">
-            <Clock className="size-4 text-amber-500" /> Time
+            <Clock className="size-4 text-amber-500" /> {sc.time}
           </span>
           <span className="font-mono text-[11px] normal-case tracking-normal text-zinc-500">
-            blocks {formatDuration(durationMin)}
+            {format(sc.blocks, { duration: formatDuration(durationMin, locale) })}
           </span>
         </h3>
 
@@ -167,9 +175,15 @@ export function ScheduleStep({
 
         {state.kind === "error" && (
           <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-200">
-            <p>{state.message}</p>
+            <p>
+              {state.body === "network"
+                ? t.errors.network
+                : state.body === null
+                  ? sc.loadFailed
+                  : apiErrorMessage(t, state.body, sc.loadFailed)}
+            </p>
             <Button variant="secondary" size="sm" className="mt-3" onClick={() => setReloadKey((k) => k + 1)}>
-              <RefreshCw className="size-4" /> Try again
+              <RefreshCw className="size-4" /> {t.common.actions.tryAgain}
             </Button>
           </div>
         )}
@@ -177,10 +191,11 @@ export function ScheduleStep({
         {state.kind === "ready" && state.data.slots.length === 0 && (
           <div className="flex flex-col items-center rounded-2xl border border-dashed border-white/10 p-8 text-center">
             <CalendarX2 className="size-8 text-zinc-600" />
-            <p className="mt-3 font-semibold text-zinc-300">{date === today ? "No more times today" : "Fully booked"}</p>
+            <p className="mt-3 font-semibold text-zinc-300">{date === today ? sc.noMoreToday : sc.fullyBooked}</p>
             <p className="mt-1 text-sm text-zinc-500">
-              No {formatDuration(durationMin)} window left on this day. Try another date
-              {barberId !== "any" ? " or First Available" : ""}.
+              {format(barberId !== "any" ? sc.noWindowOrAny : sc.noWindow, {
+                duration: formatDuration(durationMin, locale),
+              })}
             </p>
           </div>
         )}
@@ -197,9 +212,13 @@ export function ScheduleStep({
 
         {slot && (
           <p className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 font-mono text-xs text-amber-200/90">
-            Chair reserved {formatClock(slot.startsAt, settings.timezone)} –{" "}
-            {formatClock(new Date(new Date(slot.startsAt).getTime() + durationMin * 60000), settings.timezone)}
-            {barberId === "any" && slot.availableBarberIds.length > 1 && ` · ${slot.availableBarberIds.length} barbers free`}
+            {format(sc.reserved, {
+              start: formatClock(slot.startsAt, settings.timezone, locale),
+              end: formatClock(new Date(new Date(slot.startsAt).getTime() + durationMin * 60000), settings.timezone, locale),
+            })}
+            {barberId === "any" &&
+              slot.availableBarberIds.length > 1 &&
+              ` · ${format(sc.barbersFree, { n: slot.availableBarberIds.length })}`}
           </p>
         )}
       </div>

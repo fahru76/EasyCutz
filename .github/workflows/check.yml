@@ -30,6 +30,12 @@ jobs:
 
       - run: npm run check
 
+      # EZ-010: BM wording must be approved by the shop owner before it reaches main.
+      # Blocks pushes to main and pull requests into main while any TODO(review) marker remains.
+      - name: BM translations approved
+        if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+        run: npm run i18n:check
+
       # Eval numbers for the run (MAE, p95, invariant failures), kept for reading a red gate.
       - uses: actions/upload-artifact@v7
         if: always()

@@ -5,6 +5,31 @@ and add a **Review** section when a task is done.
 
 ---
 
+## Task: EZ-010 bilingual EN/BM (customer screens) + glass theme (2026-10-07)
+
+**Goal.** Customers can switch English ⇄ Bahasa Melayu without losing their cart or step, and the
+whole app gets a frosted-glass look that keeps the amber brand.
+
+### Plan
+- [x] Glass: `glass` / `glass-strong` / `glass-inset` utilities + ambient backdrop; move zinc surfaces onto them.
+- [x] i18n plumbing: typed dictionaries (`src/i18n`), cookie `ez_lang` → Accept-Language → English,
+      `I18nProvider` / `useI18n`, EN | BM switch in the customer header.
+- [x] Locale-aware dates/durations/waits (`ms-MY`: "Selasa, 6 Oktober · 2:00 PTG").
+- [x] Translate booking flow, pass and customer reschedule; API errors by code.
+- [x] Parity test (keys + placeholders), `npm run i18n:review`, CI gate `i18n:check` for main.
+- [ ] Fahru approves BM wording (`npm run i18n:review`), markers removed → merge.
+- [ ] Follow-up (EZ-010 rest): Quick-Desk/admin, `name_ms`/`description_ms` menu columns, WhatsApp/SMS in the
+      customer's language, `booking_private.language`.
+
+### Review
+- 292 BM strings drafted, all marked `TODO(review)`; CI blocks main until approved (by design).
+- Browser E2E (demo build): switch on step 2 keeps step and cart; full walk-in booking in BM; pass in BM;
+  reload keeps BM (cookie); `ms-MY` browser opens in BM; 390 px has no horizontal scroll.
+- Found while verifying: removing one line in `resolveLocale` dropped Malay detection — the new unit test
+  caught it. BM hero toggle overflowed on phones → short labels below `sm`.
+
+---
+
 ## Task: Prototype demo on GitHub Pages (2026-10-06)
 
 **Goal.** A public click-through prototype of the real app at https://fahru76.github.io/EasyCutz/,

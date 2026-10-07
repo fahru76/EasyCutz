@@ -4,13 +4,15 @@ import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { CalendarClock, Check, DoorClosed, TicketCheck, TriangleAlert, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { apiErrorMessage, interpolate, type Locale, type Messages } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 import { useLiveCatalog } from "@/hooks/use-live-catalog";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
 import { computeAmountDueNow, computeCartTotals } from "@/lib/cart";
-import { formatReopen } from "@/lib/closure";
 import { cn, formatMoney, formatQueueLine, formatWait, normalizePhone } from "@/lib/format";
 import { buildQueueSnapshot, chairBlocksForDay, estimateWalkIn } from "@/lib/queue";
+import { addDays, formatClock, formatShortDateTime, localDateString } from "@/lib/time";
 import { isShopClosed, type ApiError, type BookingMode, type Catalog, type CreateBookingResponse } from "@/lib/types/domain";
 import { BOOKING_STEPS, useBookingStore, type BookingStep } from "@/store/booking-store";
 import { SiteHeader } from "../ui/SiteHeader";
@@ -21,24 +23,30 @@ import { ServiceMenu } from "./ServiceMenu";
 import { SummaryBar } from "./SummaryBar";
 import { WalkInStep } from "./WalkInStep";
 
-const STEP_LABEL: Record<BookingStep, string> = {
-  services: "Services",
-  barber: "Barber",
-  when: "When",
-  details: "Details",
-};
-
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-function validateCustomer(c: { name: string; phone: string; email: string }): CheckoutErrors {
+function validateCustomer(c: { name: string; phone: string; email: string }, t: Messages): CheckoutErrors {
+  const text = t.booking.checkout.errors;
   const errors: CheckoutErrors = {};
-  if (c.name.trim().length < 2) errors.name = "Enter your name";
-  if (!normalizePhone(c.phone)) errors.phone = "Enter a valid mobile number";
-  if (c.email.trim() && !EMAIL_RE.test(c.email.trim())) errors.email = "Enter a valid email";
+  if (c.name.trim().length < 2) errors.name = text.name;
+  if (!normalizePhone(c.phone)) errors.phone = text.phone;
+  if (c.email.trim() && !EMAIL_RE.test(c.email.trim())) errors.email = text.email;
   return errors;
 }
 
+/** Same as formatReopen in @/lib/closure, in the active language. */
+function reopenLabel(until: Date | string, timezone: string, now: Date, t: Messages, locale: Locale): string {
+  const d = typeof until === "string" ? new Date(until) : until;
+  const today = localDateString(now, timezone);
+  const day = localDateString(d, timezone);
+  const time = formatClock(d, timezone, locale);
+  if (day === today) return interpolate(t.booking.flow.reopenToday, { time });
+  if (day === addDays(today, 1)) return interpolate(t.booking.flow.reopenTomorrow, { time });
+  return formatShortDateTime(d, timezone, locale);
+}
+
 export function BookingFlow({ catalog }: { catalog: Catalog }) {
+  const { t, locale, format } = useI18n();
   const { shifts, paymentsEnabled } = catalog;
   // EZ-009: menu, prices and rules update live when the owner edits them.
   const { settings, services, addons } = useLiveCatalog({
@@ -79,13 +87,13 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
   const closed = isShopClosed(settings, now);
   const closure =
     closed && settings.closedUntil
-      ? { reopens: formatReopen(settings.closedUntil, settings.timezone, now), message: settings.closureMessage }
+      ? { reopens: reopenLabel(settings.closedUntil, settings.timezone, now, t, locale), message: settings.closureMessage }
       : null;
 
   const [submitting, setSubmitting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const customerErrors = validateCustomer(customer);
+  const customerErrors = validateCustomer(customer, t);
 
   // Remove anything the owner just hid from the menu.
   const pruneCart = store.pruneCart;
@@ -120,16 +128,16 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
 
   const ctaLabel =
     step !== "details"
-      ? "Continue"
+      ? t.common.actions.continue
       : dueNow > 0
-        ? `Pay ${formatMoney(dueNow, settings.currency)}`
+        ? format(t.booking.flow.cta.pay, { amount: formatMoney(dueNow, settings.currency) })
         : mode === "walk_in"
-          ? "Get my ticket"
-          : "Confirm booking";
+          ? t.booking.flow.cta.getTicket
+          : t.booking.flow.cta.confirm;
 
   const hint =
     step === "when" && mode === "walk_in" && walkInEstimate
-      ? formatQueueLine(walkInEstimate.waitMin, walkInEstimate.aheadCount)
+      ? formatQueueLine(walkInEstimate.waitMin, walkInEstimate.aheadCount, locale)
       : null;
 
   async function submit() {
@@ -163,7 +171,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
       const json: unknown = await res.json();
       if (!res.ok) {
         const err = json as ApiError;
-        setToast(err.message ?? "Booking failed. Please try again.");
+        setToast(apiErrorMessage(t, err, t.booking.flow.bookingFailed));
         if (err.error === "slot_unavailable" || err.error === "slot_in_past" || err.error === "closed_window") {
           store.setSlot(null);
           store.goTo("when");
@@ -178,7 +186,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
       router.push(new URL(result.passUrl).pathname);
       store.reset();
     } catch {
-      setToast("Network error — check your connection and try again.");
+      setToast(t.errors.network);
     } finally {
       setSubmitting(false);
     }
@@ -201,11 +209,9 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
           <div role="status" className="mb-5 flex gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-rose-100">
             <DoorClosed className="size-6 shrink-0 text-rose-300" />
             <div>
-              <p className="font-semibold">Shop temporarily closed · reopening {closure.reopens}</p>
+              <p className="font-semibold">{format(t.booking.flow.closureTitle, { reopens: closure.reopens })}</p>
               {closure.message && <p className="mt-1 text-sm text-rose-100/80">{closure.message}</p>}
-              <p className="mt-1 text-sm text-rose-200/70">
-                The live queue is paused. You can still book a time after we reopen.
-              </p>
+              <p className="mt-1 text-sm text-rose-200/70">{t.booking.flow.closureBody}</p>
             </div>
           </div>
         )}
@@ -217,7 +223,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
           chairs={snapshot.onDutyIds.length}
         />
 
-        <nav aria-label="Booking steps" className="my-6">
+        <nav aria-label={t.booking.flow.stepsAria} className="my-6">
           <ol className="flex items-center gap-2">
             {BOOKING_STEPS.map((s, i) => {
               const done = i < stepIndex;
@@ -245,7 +251,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
                     >
                       {done ? <Check className="size-3.5" strokeWidth={3} /> : i + 1}
                     </span>
-                    <span className="hidden sm:inline">{STEP_LABEL[s]}</span>
+                    <span className="hidden sm:inline">{t.booking.flow.steps[s]}</span>
                   </button>
                   {i < BOOKING_STEPS.length - 1 && (
                     <span className={cn("h-px flex-1", done ? "bg-zinc-600" : "bg-white/10")} aria-hidden />
@@ -270,9 +276,11 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
               <section>
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500/90">Step 3</p>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500/90">
+                      {format(t.booking.flow.stepEyebrow, { n: 3 })}
+                    </p>
                     <h2 className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">
-                      {mode === "scheduled" ? "Pick a date & time" : "Join the live queue"}
+                      {mode === "scheduled" ? t.booking.flow.whenTitleScheduled : t.booking.flow.whenTitleWalkIn}
                     </h2>
                   </div>
                   <ModeSwitch mode={mode} onMode={(m) => store.setMode(m)} compact />
@@ -336,7 +344,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
           >
             <TriangleAlert className="mt-0.5 size-5 shrink-0 text-rose-400" />
             <p className="flex-1">{toast}</p>
-            <button type="button" aria-label="Dismiss" onClick={() => setToast(null)} className="text-zinc-400">
+            <button type="button" aria-label={t.common.actions.dismiss} onClick={() => setToast(null)} className="text-zinc-400">
               <X className="size-4" />
             </button>
           </motion.div>
@@ -359,37 +367,41 @@ function Hero({
   waiting: number;
   chairs: number;
 }) {
+  const { t, locale, format } = useI18n();
+  const h = t.booking.flow.hero;
   return (
     <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-950 p-5 sm:p-8">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-20 -top-20 size-64 rounded-full bg-amber-500/10 blur-3xl"
       />
-      <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-amber-500">Barbershop · Kuala Lumpur</p>
+      <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-amber-500">{h.eyebrow}</p>
       <h1 className="mt-2 max-w-xl text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
-        Fresh cut. <span className="text-amber-500">Zero</span> waiting room.
+        {h.titleBefore}
+        <span className="text-amber-500">{h.titleHighlight}</span>
+        {h.titleAfter}
       </h1>
       <p className="mt-2 max-w-lg text-sm text-zinc-400 sm:text-base">
-        Book an exact time, or grab a live queue number and show up when your chair is ready.
+        {h.body}
       </p>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <ModeSwitch mode={mode} onMode={onMode} />
-        <div className="flex items-center gap-2 rounded-full border border-white/10 glass-inset px-3 py-1.5 font-mono text-xs">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap rounded-2xl sm:rounded-full border border-white/10 glass-inset px-3 py-1.5 font-mono text-xs">
           {waitMin === null ? (
-            <span className="text-zinc-500">Queue closed · booking open</span>
+            <span className="text-zinc-500">{h.queueClosed}</span>
           ) : (
             <>
               <span className="relative flex size-2">
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                 <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
               </span>
-              <span className="text-zinc-200">{waitMin <= 1 ? "No wait" : `${formatWait(waitMin)} wait`}</span>
+              <span className="text-zinc-200">{waitMin <= 1 ? t.common.wait.noWait : format(h.wait, { wait: formatWait(waitMin, locale) })}</span>
               <span className="text-zinc-600">•</span>
-              <span className="text-zinc-400">{waiting} ahead</span>
+              <span className="text-zinc-400">{format(t.common.wait.ahead, { n: waiting })}</span>
               <span className="text-zinc-600">•</span>
               <span className="text-zinc-400">
-                {chairs} chair{chairs === 1 ? "" : "s"}
+                {format(chairs === 1 ? h.chairsOne : h.chairsOther, { n: chairs })}
               </span>
             </>
           )}
@@ -408,13 +420,15 @@ function ModeSwitch({
   onMode: (m: BookingMode) => void;
   compact?: boolean;
 }) {
+  const { t } = useI18n();
+  const m = t.booking.flow.mode;
   const items: Array<{ id: BookingMode; label: string; short: string; icon: React.ReactNode }> = [
-    { id: "walk_in", label: "Join live queue", short: "Walk-in", icon: <TicketCheck className="size-4" /> },
-    { id: "scheduled", label: "Book a time", short: "Schedule", icon: <CalendarClock className="size-4" /> },
+    { id: "walk_in", label: m.walkIn, short: m.walkInShort, icon: <TicketCheck className="size-4" /> },
+    { id: "scheduled", label: m.scheduled, short: m.scheduledShort, icon: <CalendarClock className="size-4" /> },
   ];
   return (
     <LayoutGroup id={compact ? "mode-compact" : "mode-hero"}>
-      <div role="radiogroup" aria-label="Booking mode" className="inline-flex rounded-full border border-white/10 glass-inset p-1">
+      <div role="radiogroup" aria-label={m.aria} className="inline-flex rounded-full border border-white/10 glass-inset p-1">
         {items.map((it) => {
           const active = mode === it.id;
           return (
@@ -423,6 +437,7 @@ function ModeSwitch({
               type="button"
               role="radio"
               aria-checked={active}
+              aria-label={it.label}
               onClick={() => onMode(it.id)}
               className={cn(
                 "relative flex items-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition-colors",
@@ -439,7 +454,15 @@ function ModeSwitch({
               )}
               <span className="relative flex items-center gap-1.5">
                 {it.icon}
-                {compact ? it.short : it.label}
+                {compact ? (
+                  it.short
+                ) : (
+                  <>
+                    {/* Full label from sm up; the short one keeps both options on one line on phones. */}
+                    <span className="sm:hidden">{it.short}</span>
+                    <span className="hidden sm:inline">{it.label}</span>
+                  </>
+                )}
               </span>
             </button>
           );

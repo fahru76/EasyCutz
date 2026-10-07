@@ -16,7 +16,9 @@
     "eval:baseline": "EVAL_UPDATE_BASELINE=1 vitest run --config vitest.eval.config.mts",
     "demo:dev": "vite --config demo/vite.config.mts",
     "demo:build": "vite build --config demo/vite.config.mts",
-    "demo:typecheck": "tsc -p demo/tsconfig.json"
+    "demo:typecheck": "tsc -p demo/tsconfig.json",
+    "i18n:review": "node scripts/i18n-review.mjs",
+    "i18n:check": "node scripts/i18n-review.mjs --check"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",

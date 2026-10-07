@@ -1,7 +1,8 @@
 "use client";
 
 import { Banknote, CreditCard, Landmark, ShieldCheck, Wallet } from "lucide-react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
+import { useI18n } from "@/i18n/provider";
 import { computeAmountDueNow } from "@/lib/cart";
 import { cn, formatDuration, formatMoney } from "@/lib/format";
 import { formatClock, formatLongDate } from "@/lib/time";
@@ -13,6 +14,14 @@ export interface CheckoutErrors {
   name?: string;
   phone?: string;
   email?: string;
+}
+
+/** Fills {placeholders} in a dictionary string with React nodes. */
+function richText(template: string, parts: Record<string, ReactNode>): ReactNode {
+  return template.split(/(\{\w+\})/g).map((piece, i) => {
+    const key = /^\{(\w+)\}$/.exec(piece)?.[1];
+    return <Fragment key={i}>{key !== undefined && key in parts ? parts[key] : piece}</Fragment>;
+  });
 }
 
 export function CheckoutStep({
@@ -32,6 +41,8 @@ export function CheckoutStep({
   paymentsEnabled: boolean;
   errors: CheckoutErrors;
 }) {
+  const { t, locale, format } = useI18n();
+  const c = t.booking.checkout;
   const customer = useBookingStore((s) => s.customer);
   const updateCustomer = useBookingStore((s) => s.updateCustomer);
   const paymentOption = useBookingStore((s) => s.paymentOption);
@@ -41,22 +52,22 @@ export function CheckoutStep({
   const options: Array<{ id: PaymentOption; title: string; detail: string; amount: string; icon: ReactNode }> = [
     {
       id: "cash_on_site",
-      title: "Pay at the shop",
-      detail: "Cash, card or e-wallet after your cut",
+      title: c.options.cashTitle,
+      detail: c.options.cashDetail,
       amount: formatMoney(0, settings.currency),
       icon: <Banknote className="size-5" />,
     },
     {
       id: "deposit",
-      title: "Pay a deposit",
-      detail: `${settings.depositPercent}% now, rest at the shop`,
+      title: c.options.depositTitle,
+      detail: format(c.options.depositDetail, { percent: settings.depositPercent }),
       amount: formatMoney(deposit, settings.currency),
       icon: <Wallet className="size-5" />,
     },
     {
       id: "full",
-      title: "Pay in full",
-      detail: "Skip the counter — just walk out fresh",
+      title: c.options.fullTitle,
+      detail: c.options.fullDetail,
       amount: formatMoney(totals.priceCents, settings.currency),
       icon: <CreditCard className="size-5" />,
     },
@@ -65,20 +76,20 @@ export function CheckoutStep({
   return (
     <section className="space-y-8">
       <div>
-        <SectionTitle eyebrow="Step 4" title="Your details" />
+        <SectionTitle eyebrow={format(t.booking.flow.stepEyebrow, { n: 4 })} title={c.title} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Full name" htmlFor="name" error={errors.name}>
+          <Field label={c.name} htmlFor="name" error={errors.name}>
             <input
               id="name"
               autoComplete="name"
               className={inputClass}
-              placeholder="e.g. Ahmad Rizal"
+              placeholder={c.namePlaceholder}
               value={customer.name}
               onChange={(e) => updateCustomer({ name: e.target.value })}
               aria-invalid={Boolean(errors.name)}
             />
           </Field>
-          <Field label="Mobile (WhatsApp)" hint="We'll ping you near your turn" htmlFor="phone" error={errors.phone}>
+          <Field label={c.phone} hint={c.phoneHint} htmlFor="phone" error={errors.phone}>
             <input
               id="phone"
               type="tel"
@@ -91,23 +102,23 @@ export function CheckoutStep({
               aria-invalid={Boolean(errors.phone)}
             />
           </Field>
-          <Field label="Email" hint="Optional · receipts" htmlFor="email" error={errors.email}>
+          <Field label={c.email} hint={c.emailHint} htmlFor="email" error={errors.email}>
             <input
               id="email"
               type="email"
               autoComplete="email"
               className={inputClass}
-              placeholder="you@example.com"
+              placeholder={c.emailPlaceholder}
               value={customer.email}
               onChange={(e) => updateCustomer({ email: e.target.value })}
               aria-invalid={Boolean(errors.email)}
             />
           </Field>
-          <Field label="Notes for your barber" hint="Optional" htmlFor="notes">
+          <Field label={c.notes} hint={c.notesHint} htmlFor="notes">
             <input
               id="notes"
               className={inputClass}
-              placeholder="e.g. keep the length on top"
+              placeholder={c.notesPlaceholder}
               maxLength={500}
               value={customer.notes}
               onChange={(e) => updateCustomer({ notes: e.target.value })}
@@ -117,8 +128,8 @@ export function CheckoutStep({
       </div>
 
       <div>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400">Payment</h3>
-        <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Payment option">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400">{c.payment}</h3>
+        <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label={c.paymentAria}>
           {options.map((o) => {
             const online = o.id !== "cash_on_site";
             const disabled = online && (!paymentsEnabled || totals.priceCents === 0);
@@ -152,28 +163,28 @@ export function CheckoutStep({
         <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
           {paymentsEnabled ? (
             <>
-              <ShieldCheck className="size-4 text-emerald-400" /> Secure checkout by Stripe ·
-              <Landmark className="size-3.5" /> FPX online banking · <CreditCard className="size-3.5" /> cards
+              <ShieldCheck className="size-4 text-emerald-400" /> {c.secureStripe}
+              <Landmark className="size-3.5" /> {c.fpx} <CreditCard className="size-3.5" /> {c.cards}
             </>
           ) : (
-            <>Online payment is currently unavailable — you can pay at the shop.</>
+            <>{c.paymentsUnavailable}</>
           )}
         </p>
       </div>
 
       <Card className="p-4">
-        <h3 className="text-sm font-semibold text-zinc-300">Summary</h3>
+        <h3 className="text-sm font-semibold text-zinc-300">{c.summary}</h3>
         <p className="mt-1 text-sm text-zinc-400">
           {mode === "scheduled" && slot ? (
-            <>
-              <span className="text-zinc-200">{formatLongDate(slot.startsAt, settings.timezone)}</span> at{" "}
-              <span className="font-mono text-amber-400">{formatClock(slot.startsAt, settings.timezone)}</span>
-            </>
+            richText(c.dateAtTime, {
+              date: <span className="text-zinc-200">{formatLongDate(slot.startsAt, settings.timezone, locale)}</span>,
+              time: <span className="font-mono text-amber-400">{formatClock(slot.startsAt, settings.timezone, locale)}</span>,
+            })
           ) : (
-            <span className="text-zinc-200">Virtual walk-in · live queue</span>
+            <span className="text-zinc-200">{c.walkInSummary}</span>
           )}
           {" · "}
-          {barber ? barber.displayName : "First available barber"}
+          {barber ? barber.displayName : c.firstAvailableBarber}
         </p>
         <ul className="mt-3 space-y-1.5 text-sm">
           {totals.lines.map((l) => (
@@ -188,7 +199,8 @@ export function CheckoutStep({
         </ul>
         <div className="mt-3 flex justify-between border-t border-white/10 pt-3 font-semibold">
           <span>
-            Total <span className="font-mono text-xs font-normal text-zinc-500">· {formatDuration(totals.durationMin)}</span>
+            {c.total}{" "}
+            <span className="font-mono text-xs font-normal text-zinc-500">· {formatDuration(totals.durationMin, locale)}</span>
           </span>
           <span className="font-mono tabular text-amber-400">{formatMoney(totals.priceCents, settings.currency)}</span>
         </div>

@@ -2,8 +2,11 @@
 
 import { motion } from "framer-motion";
 import { Check, Star, Zap } from "lucide-react";
+import { interpolate, type Locale, type Messages } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 import { formatWait, cn } from "@/lib/format";
-import { barberStatusLabel, type QueueSnapshot } from "@/lib/queue";
+import type { BarberLive, QueueSnapshot } from "@/lib/queue";
+import { formatClock } from "@/lib/time";
 import type { Barber, BookingMode } from "@/lib/types/domain";
 import { useBookingStore } from "@/store/booking-store";
 import { Avatar, Badge, SectionTitle, type BadgeTone } from "../ui/primitives";
@@ -23,6 +26,26 @@ function toneFor(state: string | undefined): BadgeTone {
   }
 }
 
+/** Same wording as barberStatusLabel in @/lib/queue, in the active language. */
+function barberStatusText(live: BarberLive | undefined, timezone: string, t: Messages, locale: Locale): string {
+  const s = t.booking.roster.status;
+  if (!live) return s.offDuty;
+  switch (live.state) {
+    case "on_break":
+      return live.onBreak
+        ? interpolate(s.onBreakBack, { time: formatClock(live.onBreak.until, timezone, locale) })
+        : s.onBreak;
+    case "available":
+      return s.available;
+    case "in_chair":
+      return live.runningOverMin > 0 ? s.inChairLate : interpolate(s.inChairLeft, { n: live.minutesLeft ?? 0 });
+    case "busy":
+      return live.nextFreeMin !== null ? interpolate(s.freeIn, { n: live.nextFreeMin }) : s.busy;
+    case "off_duty":
+      return s.offDuty;
+  }
+}
+
 export function BarberRoster({
   barbers,
   snapshot,
@@ -34,6 +57,8 @@ export function BarberRoster({
   mode: BookingMode;
   timezone: string;
 }) {
+  const { t, locale, format } = useI18n();
+  const r = t.booking.roster;
   const barberId = useBookingStore((s) => s.barberId);
   const setBarber = useBookingStore((s) => s.setBarber);
   const anyWait = snapshot.nextWalkIn?.waitMin ?? null;
@@ -41,15 +66,15 @@ export function BarberRoster({
   return (
     <section aria-labelledby="barber-title">
       <SectionTitle
-        eyebrow="Step 2"
-        title="Pick your barber"
-        action={<span className="text-xs text-zinc-500 sm:hidden">Swipe →</span>}
+        eyebrow={format(t.booking.flow.stepEyebrow, { n: 2 })}
+        title={r.title}
+        action={<span className="text-xs text-zinc-500 sm:hidden">{r.swipe}</span>}
       />
 
       <div
         className="no-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-2"
         role="radiogroup"
-        aria-label="Barber"
+        aria-label={r.aria}
       >
         {/* First available */}
         <motion.button
@@ -68,14 +93,14 @@ export function BarberRoster({
           <span className="flex size-14 items-center justify-center rounded-2xl bg-amber-500 text-zinc-950">
             <Zap className="size-7" strokeWidth={2.5} />
           </span>
-          <p className="mt-4 text-lg font-bold text-zinc-50">First Available</p>
-          <p className="text-sm text-zinc-400">Fastest chair, best for walk-ins</p>
+          <p className="mt-4 text-lg font-bold text-zinc-50">{r.firstAvailable}</p>
+          <p className="text-sm text-zinc-400">{r.firstAvailableBody}</p>
           <div className="mt-4">
             {anyWait === null ? (
-              <Badge tone="zinc">Queue closed</Badge>
+              <Badge tone="zinc">{r.queueClosed}</Badge>
             ) : (
               <Badge tone={anyWait <= 1 ? "emerald" : "amber"} pulse mono>
-                {anyWait <= 1 ? "Chair free now" : `${formatWait(anyWait)} wait`}
+                {anyWait <= 1 ? r.chairFreeNow : format(r.wait, { wait: formatWait(anyWait, locale) })}
               </Badge>
             )}
           </div>
@@ -114,11 +139,11 @@ export function BarberRoster({
               </p>
               <div className="mt-3">
                 <Badge tone={toneFor(offDuty && live?.state !== "in_chair" ? "off_duty" : live?.state)} pulse={!offDuty} mono>
-                  {offDuty && live?.state !== "in_chair" ? "Off Duty" : barberStatusLabel(live, timezone)}
+                  {offDuty && live?.state !== "in_chair" ? r.status.offDuty : barberStatusText(live, timezone, t, locale)}
                 </Badge>
               </div>
               {mode === "scheduled" && offDuty && (
-                <p className="mt-2 text-[11px] text-zinc-500">Bookable for later dates</p>
+                <p className="mt-2 text-[11px] text-zinc-500">{r.bookableLater}</p>
               )}
               {selected && <SelectedTick />}
             </motion.button>

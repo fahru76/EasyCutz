@@ -3,6 +3,7 @@
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { Check, Crown, Flame, Plus, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useI18n } from "@/i18n/provider";
 import { MAX_SERVICES } from "@/lib/cart";
 import { cn, formatDuration, formatMoney } from "@/lib/format";
 import { SERVICE_CATEGORIES, type Addon, type Service, type ServiceCategory } from "@/lib/types/domain";
@@ -18,6 +19,7 @@ export function ServiceMenu({
   addons: Addon[];
   currency: string;
 }) {
+  const { t, locale, format } = useI18n();
   const serviceIds = useBookingStore((s) => s.serviceIds);
   const addonIds = useBookingStore((s) => s.addonIds);
   const toggleService = useBookingStore((s) => s.toggleService);
@@ -34,7 +36,7 @@ export function ServiceMenu({
 
   return (
     <section aria-labelledby="menu-title">
-      <SectionTitle eyebrow="Step 1" title="Choose your services" />
+      <SectionTitle eyebrow={format(t.booking.flow.stepEyebrow, { n: 1 })} title={t.booking.menu.title} />
 
       <LayoutGroup id="service-tabs">
         <div role="tablist" className="no-scrollbar -mx-4 mb-4 flex gap-1 overflow-x-auto px-4">
@@ -60,7 +62,7 @@ export function ServiceMenu({
                   />
                 )}
                 <span className="relative flex items-center gap-1.5">
-                  {c.label}
+                  {t.booking.menu.categories[c.id]}
                   {count > 0 && (
                     <span
                       className={cn(
@@ -111,19 +113,19 @@ export function ServiceMenu({
                       <h3 className="font-semibold text-zinc-50">{service.name}</h3>
                       {service.isPopular && (
                         <Badge tone="amber">
-                          <Flame className="size-3" /> Popular
+                          <Flame className="size-3" /> {t.booking.menu.popular}
                         </Badge>
                       )}
                       {service.category === "combo" && (
                         <Badge tone="sky">
-                          <Crown className="size-3" /> Combo
+                          <Crown className="size-3" /> {t.booking.menu.combo}
                         </Badge>
                       )}
                     </div>
                     <p className="mt-1 line-clamp-2 text-sm text-zinc-400">{service.description}</p>
                     <div className="mt-3 flex items-center gap-2">
                       <Badge mono tone={selected ? "amber" : "zinc"}>{formatMoney(service.priceCents, currency)}</Badge>
-                      <Badge mono>{formatDuration(service.durationMin)}</Badge>
+                      <Badge mono>{formatDuration(service.durationMin, locale)}</Badge>
                     </div>
                   </div>
                   <span
@@ -147,7 +149,7 @@ export function ServiceMenu({
       {addons.length > 0 && (
         <div className="mt-8">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-            <Sparkles className="size-4 text-amber-500" /> Add-ons
+            <Sparkles className="size-4 text-amber-500" /> {t.booking.menu.addons}
           </h3>
           <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-2xl border border-white/10 glass">
             {addons.map((addon) => {
@@ -161,20 +163,20 @@ export function ServiceMenu({
                   </div>
                   <span className="font-mono text-xs text-zinc-400 tabular">
                     +{formatMoney(addon.priceCents, currency)}
-                    {addon.durationMin > 0 && <span className="text-zinc-600"> · {addon.durationMin}m</span>}
+                    {addon.durationMin > 0 && <span className="text-zinc-600"> · {format(t.booking.menu.addonMinutes, { n: addon.durationMin })}</span>}
                   </span>
                   <Switch
                     checked={on}
                     disabled={disabled}
                     onChange={() => toggleAddon(addon.id)}
-                    label={`Add ${addon.name}`}
+                    label={format(t.booking.menu.addAddon, { name: addon.name })}
                   />
                 </li>
               );
             })}
           </ul>
           {serviceIds.length === 0 && (
-            <p className="mt-2 text-xs text-zinc-500">Pick a service first to unlock add-ons.</p>
+            <p className="mt-2 text-xs text-zinc-500">{t.booking.menu.unlockAddons}</p>
           )}
         </div>
       )}

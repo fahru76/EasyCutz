@@ -2,6 +2,8 @@
 
 import { CalendarDays, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { apiErrorMessage } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 import { cn, formatDuration } from "@/lib/format";
 import { isWorkingDay } from "@/lib/slots";
 import { addDays, formatDayLabel, formatShortDateTime, localDateString } from "@/lib/time";
@@ -11,6 +13,21 @@ import { Button, Skeleton } from "../ui/primitives";
 
 interface AvailabilityResponse {
   slots: TimeSlot[];
+}
+
+/** Kept as data (not text) so the message follows the active language. */
+type LoadError = { kind: "api"; body: unknown } | { kind: "network" } | { kind: "other" };
+
+class ApiFailure extends Error {
+  constructor(readonly body: unknown) {
+    super("availability request failed");
+  }
+}
+
+function toLoadError(err: unknown): LoadError {
+  if (err instanceof ApiFailure) return { kind: "api", body: err.body };
+  if (err instanceof TypeError) return { kind: "network" };
+  return { kind: "other" };
 }
 
 /**
@@ -43,6 +60,7 @@ export function RescheduleSlotPicker({
   busy: boolean;
   onConfirm: (slot: TimeSlot, barberId: string) => void;
 }) {
+  const { t, locale, format } = useI18n();
   const [anyBarber, setAnyBarber] = useState(false);
   const today = localDateString(new Date(), settings.timezone);
   const candidateIds = useMemo(
@@ -53,16 +71,16 @@ export function RescheduleSlotPicker({
     () =>
       Array.from({ length: settings.bookingHorizonDays + 1 }, (_, i) => {
         const d = addDays(today, i);
-        return { date: d, open: isWorkingDay(d, candidateIds, shifts), label: formatDayLabel(d, today) };
+        return { date: d, open: isWorkingDay(d, candidateIds, shifts), label: formatDayLabel(d, today, locale) };
       }),
-    [today, settings.bookingHorizonDays, candidateIds, shifts],
+    [today, settings.bookingHorizonDays, candidateIds, shifts, locale],
   );
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const isOpen = (d: string | null | undefined) => Boolean(d && days.some((x) => x.date === d && x.open));
   const date = isOpen(chosenDate) ? chosenDate : isOpen(initialDate) ? (initialDate ?? null) : (days.find((d) => d.open)?.date ?? null);
   const [slot, setSlot] = useState<TimeSlot | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [result, setResult] = useState<{ key: string; slots: TimeSlot[] | null; error: string | null } | null>(null);
+  const [result, setResult] = useState<{ key: string; slots: TimeSlot[] | null; error: LoadError | null } | null>(null);
 
   const requestKey = useMemo(() => {
     if (!date) return null;
@@ -85,12 +103,12 @@ export function RescheduleSlotPicker({
     })
       .then(async (res) => {
         const body: unknown = await res.json();
-        if (!res.ok) throw new Error((body as ApiError).message ?? "Couldn't load times");
+        if (!res.ok) throw new ApiFailure(body);
         setResult({ key: requestKey, slots: (body as AvailabilityResponse).slots, error: null });
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setResult({ key: requestKey, slots: null, error: err instanceof Error ? err.message : "Couldn't load times" });
+        setResult({ key: requestKey, slots: null, error: toLoadError(err) });
       });
     return () => controller.abort();
   }, [requestKey]);
@@ -98,7 +116,13 @@ export function RescheduleSlotPicker({
   const loaded = result && result.key === requestKey ? result : null;
   const slots = loaded?.slots ?? null;
   const selected = slot && slots?.some((s) => s.startsAt === slot.startsAt) ? slot : null;
-  const barberName = (id: string) => barbers.find((b) => b.id === id)?.displayName ?? "barber";
+  const loadErrorText = (e: LoadError) =>
+    e.kind === "api"
+      ? apiErrorMessage(t, e.body as ApiError, t.pass.slots.couldNotLoad)
+      : e.kind === "network"
+        ? t.errors.network
+        : t.pass.slots.couldNotLoad;
+  const barberName = (id: string) => barbers.find((b) => b.id === id)?.displayName ?? t.pass.slots.barberFallback;
   const chosenBarber = selected
     ? selected.availableBarberIds.includes(originalBarberId)
       ? originalBarberId
@@ -107,7 +131,7 @@ export function RescheduleSlotPicker({
 
   return (
     <div className="space-y-4">
-      <div role="radiogroup" aria-label="Barber" className="grid grid-cols-2 gap-1 rounded-2xl border border-white/10 glass-inset p-1 text-sm font-semibold">
+      <div role="radiogroup" aria-label={t.pass.slots.barberGroup} className="grid grid-cols-2 gap-1 rounded-2xl border border-white/10 glass-inset p-1 text-sm font-semibold">
         {[false, true].map((any) => (
           <button
             key={String(any)}
@@ -120,17 +144,19 @@ export function RescheduleSlotPicker({
             }}
             className={cn("rounded-xl py-2", anyBarber === any ? "bg-amber-500 text-zinc-950" : "text-zinc-400 hover:text-zinc-200")}
           >
-            {any ? "Any barber" : `Keep ${barberName(originalBarberId)}`}
+            {any ? t.pass.slots.anyBarber : format(t.pass.slots.keepBarber, { barber: barberName(originalBarberId) })}
           </button>
         ))}
       </div>
 
       <div>
         <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          <CalendarDays className="size-4 text-amber-500" /> Date
-          <span className="ml-auto font-mono normal-case tracking-normal text-zinc-500">blocks {formatDuration(durationMin)}</span>
+          <CalendarDays className="size-4 text-amber-500" /> {t.pass.slots.date}
+          <span className="ml-auto font-mono normal-case tracking-normal text-zinc-500">
+            {format(t.pass.slots.blocks, { duration: formatDuration(durationMin, locale) })}
+          </span>
         </p>
-        <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="listbox" aria-label="New date">
+        <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="listbox" aria-label={t.pass.slots.newDate}>
           {days.map((d) => (
             <button
               key={d.date}
@@ -158,15 +184,17 @@ export function RescheduleSlotPicker({
       {!loaded && <Skeleton className="h-40" />}
       {loaded?.error && (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-200">
-          {loaded.error}
+          {loadErrorText(loaded.error)}
           <Button variant="secondary" size="sm" className="ml-3" onClick={() => setReloadKey((k) => k + 1)}>
-            <RefreshCw className="size-4" /> Retry
+            <RefreshCw className="size-4" /> {t.pass.slots.retry}
           </Button>
         </div>
       )}
       {slots && slots.length === 0 && (
         <p className="rounded-xl border border-dashed border-white/10 p-4 text-center text-sm text-zinc-500">
-          No free {formatDuration(durationMin)} window this day{anyBarber ? "" : " — try “Any barber” or another date"}.
+          {format(anyBarber ? t.pass.slots.noWindow : t.pass.slots.noWindowTryAny, {
+            duration: formatDuration(durationMin, locale),
+          })}
         </p>
       )}
       {slots && slots.length > 0 && (
@@ -187,8 +215,11 @@ export function RescheduleSlotPicker({
         onClick={() => selected && onConfirm(selected, chosenBarber)}
       >
         {selected
-          ? `Move to ${formatShortDateTime(selected.startsAt, settings.timezone)} · ${barberName(chosenBarber)}`
-          : "Pick a new time"}
+          ? format(t.pass.slots.moveTo, {
+              when: formatShortDateTime(selected.startsAt, settings.timezone, locale),
+              barber: barberName(chosenBarber),
+            })
+          : t.pass.slots.pickNew}
       </Button>
     </div>
   );

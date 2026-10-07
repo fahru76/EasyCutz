@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ChevronLeft } from "lucide-react";
+import { useI18n } from "@/i18n/provider";
 import { formatDuration, formatMoney } from "@/lib/format";
 import { Button } from "../ui/primitives";
 
@@ -30,6 +31,7 @@ export function SummaryBar({
   onCta: () => void;
   onBack: (() => void) | null;
 }) {
+  const { t, locale, format } = useI18n();
   return (
     <AnimatePresence>
       {visible && (
@@ -45,7 +47,7 @@ export function SummaryBar({
               <button
                 type="button"
                 onClick={onBack}
-                aria-label="Back"
+                aria-label={t.common.actions.back}
                 className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 text-zinc-300 hover:border-white/15"
               >
                 <ChevronLeft className="size-5" />
@@ -53,7 +55,11 @@ export function SummaryBar({
             )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs text-zinc-500">
-                {hint ?? `${itemCount} item${itemCount === 1 ? "" : "s"} · ${formatDuration(durationMin)}`}
+                {hint ??
+                  format(itemCount === 1 ? t.booking.summary.itemsOne : t.booking.summary.itemsOther, {
+                    n: itemCount,
+                    duration: formatDuration(durationMin, locale),
+                  })}
               </p>
               <motion.p
                 key={priceCents}

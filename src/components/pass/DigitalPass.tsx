@@ -19,11 +19,13 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useLiveSettings } from "@/hooks/use-live-settings";
 import { useLiveShop } from "@/hooks/use-live-shop";
 import { useNow } from "@/hooks/use-now";
-import { formatReopen, overlapsClosure } from "@/lib/closure";
+import { apiErrorMessage, interpolate, type Locale, type Messages } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
+import { overlapsClosure } from "@/lib/closure";
 import { cn, formatDuration, formatMoney, formatQueueLine } from "@/lib/format";
 import { whatsappLink } from "@/lib/notify";
 import { buildQueueSnapshot, chairBlocksForDay, type AppointmentEta } from "@/lib/queue";
-import { formatClock, formatLongDate, minutesBetween } from "@/lib/time";
+import { addDays, formatClock, formatLongDate, formatShortDateTime, localDateString, minutesBetween } from "@/lib/time";
 import {
   isShopClosed,
   type ApiError,
@@ -39,17 +41,17 @@ import { PassReschedule } from "../reschedule/PassReschedule";
 import { SiteHeader } from "../ui/SiteHeader";
 import { Avatar, Badge, Button, type BadgeTone } from "../ui/primitives";
 
-type Stage = { key: string; label: string };
+type Stage = { key: string; label: Exclude<keyof Messages["pass"]["progress"], "label"> };
 const TICKET_STAGES: Stage[] = [
-  { key: "waiting", label: "Waiting" },
-  { key: "in_chair", label: "In Chair" },
-  { key: "completed", label: "Completed" },
+  { key: "waiting", label: "waiting" },
+  { key: "in_chair", label: "inChair" },
+  { key: "completed", label: "completed" },
 ];
 const APPOINTMENT_STAGES: Stage[] = [
-  { key: "confirmed", label: "Booked" },
-  { key: "checked_in", label: "Checked in" },
-  { key: "in_chair", label: "In Chair" },
-  { key: "completed", label: "Completed" },
+  { key: "confirmed", label: "booked" },
+  { key: "checked_in", label: "checkedIn" },
+  { key: "in_chair", label: "inChair" },
+  { key: "completed", label: "completed" },
 ];
 
 function stageIndex(b: LiveBooking): number {
@@ -64,18 +66,20 @@ function stageIndex(b: LiveBooking): number {
   return 0;
 }
 
-const STATUS_COPY: Record<string, { label: string; tone: BadgeTone }> = {
-  waiting: { label: "Waiting", tone: "amber" },
-  called: { label: "You're up!", tone: "emerald" },
-  in_chair: { label: "In Chair", tone: "emerald" },
-  completed: { label: "Completed", tone: "zinc" },
-  no_show: { label: "Missed", tone: "rose" },
-  cancelled: { label: "Cancelled", tone: "rose" },
-  pending_payment: { label: "Awaiting payment", tone: "amber" },
-  confirmed: { label: "Confirmed", tone: "emerald" },
-  checked_in: { label: "Checked in", tone: "sky" },
-  expired: { label: "Expired", tone: "rose" },
+type StatusKey = keyof Messages["pass"]["status"];
+const STATUS_TONE: Record<StatusKey, BadgeTone> = {
+  waiting: "amber",
+  called: "emerald",
+  in_chair: "emerald",
+  completed: "zinc",
+  no_show: "rose",
+  cancelled: "rose",
+  pending_payment: "amber",
+  confirmed: "emerald",
+  checked_in: "sky",
+  expired: "rose",
 };
+const isStatusKey = (s: string): s is StatusKey => Object.prototype.hasOwnProperty.call(STATUS_TONE, s);
 
 const isActive = (b: LiveBooking) =>
   b.kind === "ticket"
@@ -103,6 +107,7 @@ export function DigitalPass({
   shifts: Shift[];
   openReschedule: boolean;
 }) {
+  const { t, locale, format } = useI18n();
   const now = useNow(10_000);
   // EZ-001: closure state arrives live.
   const settings = useLiveSettings(initialSettings, `pass-settings-${pass.token.slice(0, 8)}`);
@@ -164,16 +169,20 @@ export function DigitalPass({
     alerted.current = key;
     navigator.vibrate?.([200, 100, 200]);
     if (notifyState === "granted") {
-      const label = booking.kind === "ticket" ? booking.code : "your appointment";
-      new Notification(booking.status === "called" ? "You're up!" : "Almost your turn", {
+      const label = booking.kind === "ticket" ? booking.code : t.pass.notification.yourAppointment;
+      new Notification(booking.status === "called" ? t.pass.notification.calledTitle : t.pass.notification.soonTitle, {
         body:
           booking.status === "called"
-            ? `${assignedBarber?.displayName ?? "Your barber"} is ready for ${label}.`
-            : `About ${minutesUntil ?? settings.notifyLeadMin} min until ${label}. Head to ${settings.shopName}.`,
+            ? format(t.pass.notification.calledBody, { barber: assignedBarber?.displayName ?? t.pass.turn.yourBarber, label })
+            : format(t.pass.notification.soonBody, {
+                n: minutesUntil ?? settings.notifyLeadMin,
+                label,
+                shop: settings.shopName,
+              }),
         tag: `easycutz-${booking.id}`,
       });
     }
-  }, [turnSoon, booking, notifyState, assignedBarber, minutesUntil, settings]);
+  }, [turnSoon, booking, notifyState, assignedBarber, minutesUntil, settings, t, format]);
 
   // ---- actions --------------------------------------------------------------
   const [busy, setBusy] = useState<"cancel" | "pay" | null>(null);
@@ -185,10 +194,10 @@ export function DigitalPass({
     setBusy("cancel");
     try {
       const res = await fetch(`/api/bookings/${pass.token}/cancel`, { method: "POST" });
-      if (!res.ok) setMessage(((await res.json()) as ApiError).message);
+      if (!res.ok) setMessage(apiErrorMessage(t, (await res.json()) as ApiError));
       else await live.refresh();
     } catch {
-      setMessage("Network error — please try again.");
+      setMessage(t.errors.network);
     } finally {
       setBusy(null);
       setConfirmCancel(false);
@@ -201,28 +210,30 @@ export function DigitalPass({
       const res = await fetch(`/api/bookings/${pass.token}/pay`, { method: "POST" });
       const json = (await res.json()) as { checkoutUrl?: string } & Partial<ApiError>;
       if (res.ok && json.checkoutUrl) window.location.assign(json.checkoutUrl);
-      else setMessage(json.message ?? "Couldn't open payment.");
+      else setMessage(res.ok ? t.pass.payment.couldNotOpen : apiErrorMessage(t, json, t.pass.payment.couldNotOpen));
     } catch {
-      setMessage("Network error — please try again.");
+      setMessage(t.errors.network);
     } finally {
       setBusy(null);
     }
   }
 
   async function share() {
-    const data = { title: `${settings.shopName} pass`, url: passUrl };
+    const data = { title: format(t.pass.actions.shareTitle, { shop: settings.shopName }), url: passUrl };
     try {
       if (navigator.share) await navigator.share(data);
       else {
         await navigator.clipboard.writeText(passUrl);
-        setMessage("Pass link copied.");
+        setMessage(t.pass.actions.linkCopied);
       }
     } catch {
       /* user dismissed the share sheet */
     }
   }
 
-  const status = STATUS_COPY[booking.status] ?? { label: booking.status, tone: "zinc" as BadgeTone };
+  const status = isStatusKey(booking.status)
+    ? { label: t.pass.status[booking.status], tone: STATUS_TONE[booking.status] }
+    : { label: booking.status, tone: "zinc" as BadgeTone };
   const stages = booking.kind === "ticket" ? TICKET_STAGES : APPOINTMENT_STAGES;
   const current = stageIndex(booking);
   const ended = !isActive(booking) && booking.status !== "in_chair";
@@ -232,7 +243,7 @@ export function DigitalPass({
     ((booking.kind === "appointment" && booking.status === "pending_payment") ||
       (booking.kind === "ticket" && isActive(booking) && booking.paymentOption !== "cash_on_site"));
 
-  const notice = closureNotice({ booking, pass, settings, now });
+  const notice = closureNotice({ booking, pass, settings, now, t, locale });
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -256,11 +267,11 @@ export function DigitalPass({
               <p className="flex-1">
                 {banner === "success"
                   ? booking.paymentStatus === "paid"
-                    ? "Payment received. You're all set!"
-                    : "Payment submitted — confirming with the bank…"
-                  : "Payment wasn't completed. Your spot is held for a short while — finish paying below."}
+                    ? t.pass.payment.received
+                    : t.pass.payment.submitted
+                  : t.pass.payment.notCompleted}
               </p>
-              <button type="button" aria-label="Dismiss" onClick={() => setBanner(null)}>
+              <button type="button" aria-label={t.common.actions.dismiss} onClick={() => setBanner(null)}>
                 <X className="size-4" />
               </button>
             </motion.div>
@@ -279,7 +290,7 @@ export function DigitalPass({
                   href="/"
                   className="mt-3 inline-flex h-9 items-center rounded-lg bg-amber-500 px-3 text-sm font-semibold text-zinc-950 hover:bg-amber-400"
                 >
-                  Book or queue another day
+                  {t.pass.closure.bookOtherDay}
                 </Link>
               )}
             </div>
@@ -297,16 +308,16 @@ export function DigitalPass({
               <BellRing className="size-6 shrink-0 animate-bounce" />
               <div>
                 <p className="font-bold">
-                  {booking.status === "called" ? "You're up — head to the chair!" : "Almost your turn"}
+                  {booking.status === "called" ? t.pass.turn.calledTitle : t.pass.turn.soonTitle}
                 </p>
                 <p className="text-sm text-zinc-900/80">
                   {booking.status === "called"
-                    ? `${assignedBarber?.displayName ?? "Your barber"} is ready for you.`
+                    ? format(t.pass.turn.barberReady, { barber: assignedBarber?.displayName ?? t.pass.turn.yourBarber })
                     : minutesUntil !== null && minutesUntil > 1
                       ? booking.checkedInAt
-                        ? `You're checked in — about ${minutesUntil} min to go. Stay close to the chair.`
-                        : `About ${minutesUntil} min to go. Please make your way to the shop.`
-                      : "A chair is opening now — please head to the shop."}
+                        ? format(t.pass.turn.checkedInSoon, { n: minutesUntil })
+                        : format(t.pass.turn.soon, { n: minutesUntil })
+                      : t.pass.turn.chairOpening}
                 </p>
               </div>
             </motion.div>
@@ -323,7 +334,7 @@ export function DigitalPass({
             <div className="flex items-center justify-between">
               <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500">
                 {booking.kind === "ticket" ? <Ticket className="size-4" /> : <CalendarClock className="size-4" />}
-                {booking.kind === "ticket" ? "Live queue pass" : "Appointment pass"}
+                {booking.kind === "ticket" ? t.pass.kind.ticket : t.pass.kind.appointment}
               </p>
               <Badge tone={status.tone} pulse={isActive(booking) || booking.status === "in_chair"}>
                 {status.label}
@@ -338,13 +349,15 @@ export function DigitalPass({
                 timezone={settings.timezone}
                 now={now}
                 barberOverMin={barberOverMin}
+                t={t}
+                locale={locale}
               />
             ) : (
-              <AppointmentHeadline appt={booking} timezone={settings.timezone} eta={appointmentEta} />
+              <AppointmentHeadline appt={booking} timezone={settings.timezone} eta={appointmentEta} t={t} locale={locale} />
             )}
 
             {/* Progress */}
-            <ol className="mt-6 flex items-center gap-1" aria-label="Status">
+            <ol className="mt-6 flex items-center gap-1" aria-label={t.pass.progress.label}>
               {stages.map((s, i) => {
                 const reached = !["cancelled", "no_show", "expired"].includes(booking.status) && i <= current;
                 return (
@@ -355,7 +368,7 @@ export function DigitalPass({
                       animate={{ opacity: reached ? 1 : 0.6 }}
                     />
                     <span className={cn("text-[10px] font-semibold uppercase tracking-wide", reached ? "text-zinc-200" : "text-zinc-600")}>
-                      {s.label}
+                      {t.pass.progress[s.label]}
                     </span>
                   </li>
                 );
@@ -373,7 +386,7 @@ export function DigitalPass({
           <div className="grid grid-cols-[1fr_auto] items-center gap-4 p-6">
             <div className="space-y-3 text-sm">
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-zinc-500">Name</p>
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500">{t.pass.details.name}</p>
                 <p className="font-semibold text-zinc-100">{pass.customerName}</p>
                 <p className="font-mono text-xs text-zinc-500">{pass.phoneMasked}</p>
               </div>
@@ -382,19 +395,19 @@ export function DigitalPass({
                   <>
                     <Avatar name={assignedBarber.displayName} src={assignedBarber.avatarUrl} size={32} />
                     <div>
-                      <p className="text-[11px] uppercase tracking-wider text-zinc-500">Barber</p>
+                      <p className="text-[11px] uppercase tracking-wider text-zinc-500">{t.pass.details.barber}</p>
                       <p className="font-semibold text-zinc-100">
                         {assignedBarber.displayName}
                         {booking.kind === "ticket" && !booking.barberId && (
-                          <span className="font-normal text-zinc-500"> (likely)</span>
+                          <span className="font-normal text-zinc-500"> {t.pass.details.likely}</span>
                         )}
                       </p>
                     </div>
                   </>
                 ) : (
                   <div>
-                    <p className="text-[11px] uppercase tracking-wider text-zinc-500">Barber</p>
-                    <p className="font-semibold text-zinc-100">First available</p>
+                    <p className="text-[11px] uppercase tracking-wider text-zinc-500">{t.pass.details.barber}</p>
+                    <p className="font-semibold text-zinc-100">{t.pass.details.firstAvailable}</p>
                   </div>
                 )}
               </div>
@@ -402,13 +415,13 @@ export function DigitalPass({
             <div className="rounded-2xl bg-white p-2.5">
               <QRCodeSVG value={checkInUrl} size={112} level="M" marginSize={0} bgColor="#ffffff" fgColor="#09090b" />
             </div>
-            <p className="col-span-2 -mt-2 text-right text-[11px] text-zinc-500">Scan at the counter to check in</p>
+            <p className="col-span-2 -mt-2 text-right text-[11px] text-zinc-500">{t.pass.details.scanToCheckIn}</p>
           </div>
 
           <div className="border-t border-white/10 glass-inset p-6 text-sm">
             <p className="text-zinc-300">{booking.serviceSummary}</p>
             <div className="mt-2 flex items-center justify-between">
-              <span className="font-mono text-xs text-zinc-500">{formatDuration(booking.durationMin)}</span>
+              <span className="font-mono text-xs text-zinc-500">{formatDuration(booking.durationMin, locale)}</span>
               <span className="font-mono font-bold tabular text-amber-400">
                 {formatMoney(booking.priceCents, settings.currency)}
               </span>
@@ -417,13 +430,13 @@ export function DigitalPass({
               <CreditCard className="size-3.5" />
               {booking.paymentStatus === "paid"
                 ? booking.paymentOption === "deposit"
-                  ? "Deposit paid · balance at the shop"
-                  : "Paid in full"
+                  ? t.pass.payment.depositPaid
+                  : t.pass.payment.paidInFull
                 : booking.paymentOption === "cash_on_site"
-                  ? "Pay at the shop"
+                  ? t.pass.payment.payAtShop
                   : booking.paymentStatus === "failed"
-                    ? "Online payment failed · pay at the shop"
-                    : "Online payment pending"}
+                    ? t.pass.payment.onlineFailed
+                    : t.pass.payment.onlinePending}
             </p>
           </div>
         </motion.article>
@@ -445,32 +458,34 @@ export function DigitalPass({
         <div className="mt-5 space-y-3">
           {needsPayment && (
             <Button size="lg" className="w-full" loading={busy === "pay"} onClick={() => void pay()}>
-              <CreditCard className="size-5" /> Complete payment
+              <CreditCard className="size-5" /> {t.pass.payment.complete}
             </Button>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <Button variant="secondary" onClick={() => void share()}>
-              <Share2 className="size-4" /> Share pass
+              <Share2 className="size-4" /> {t.pass.actions.share}
             </Button>
             {notifyState === "default" ? (
               <Button
                 variant="secondary"
                 onClick={async () => setNotifyState(await Notification.requestPermission())}
               >
-                <BellRing className="size-4" /> Alert me
+                <BellRing className="size-4" /> {t.pass.actions.alertMe}
               </Button>
             ) : settings.shopPhone ? (
               <a
                 href={whatsappLink(
                   settings.shopPhone,
-                  `Hi ${settings.shopName}, about my ${booking.kind === "ticket" ? `ticket ${booking.code}` : "appointment"}: `,
+                  booking.kind === "ticket"
+                    ? format(t.pass.actions.whatsappTicket, { shop: settings.shopName, code: booking.code })
+                    : format(t.pass.actions.whatsappAppointment, { shop: settings.shopName }),
                 )}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] text-sm font-semibold text-zinc-100 hover:border-white/15"
               >
-                <MessageCircle className="size-4" /> WhatsApp shop
+                <MessageCircle className="size-4" /> {t.pass.actions.whatsappShop}
               </a>
             ) : (
               <span />
@@ -482,13 +497,13 @@ export function DigitalPass({
               {confirmCancel ? (
                 <div className="flex items-center justify-center gap-2">
                   <span className="text-sm text-zinc-400">
-                    {booking.kind === "ticket" ? "Give up your spot?" : "Cancel this booking?"}
+                    {booking.kind === "ticket" ? t.pass.cancel.confirmTicket : t.pass.cancel.confirmAppointment}
                   </span>
                   <Button variant="danger" size="sm" loading={busy === "cancel"} onClick={() => void cancel()}>
-                    Yes, {booking.kind === "ticket" ? "leave" : "cancel"}
+                    {booking.kind === "ticket" ? t.pass.cancel.yesLeave : t.pass.cancel.yesCancel}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => setConfirmCancel(false)}>
-                    Keep it
+                    {t.pass.cancel.keep}
                   </Button>
                 </div>
               ) : (
@@ -497,7 +512,7 @@ export function DigitalPass({
                   onClick={() => setConfirmCancel(true)}
                   className="text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline"
                 >
-                  {booking.kind === "ticket" ? "Leave the queue" : "Cancel booking"}
+                  {booking.kind === "ticket" ? t.pass.cancel.leaveQueue : t.pass.cancel.cancelBooking}
                 </button>
               )}
             </div>
@@ -505,9 +520,9 @@ export function DigitalPass({
 
           {ended && (
             <p className="text-center text-sm text-zinc-500">
-              {booking.status === "completed" ? "Thanks for visiting — looking sharp!" : "This pass is no longer active."}{" "}
+              {booking.status === "completed" ? t.pass.ended.thanks : t.pass.ended.inactive}{" "}
               <Link href="/" className="text-amber-400 hover:underline">
-                Book again
+                {t.pass.actions.bookAgain}
               </Link>
             </p>
           )}
@@ -531,6 +546,8 @@ function TicketHeadline({
   timezone,
   now,
   barberOverMin,
+  t,
+  locale,
 }: {
   ticket: LiveTicket;
   etaMin: number | null;
@@ -538,10 +555,12 @@ function TicketHeadline({
   timezone: string;
   now: Date;
   barberOverMin: number;
+  t: Messages;
+  locale: Locale;
 }) {
   return (
     <div className="mt-5">
-      <p className="text-xs text-zinc-500">Ticket</p>
+      <p className="text-xs text-zinc-500">{t.pass.ticket.label}</p>
       <motion.p
         key={ticket.code}
         initial={{ scale: 0.9, opacity: 0 }}
@@ -552,16 +571,21 @@ function TicketHeadline({
       </motion.p>
       {ticket.status === "waiting" && (
         <p className="mt-2 font-mono text-sm text-amber-400">
-          {etaMin === null ? "Waiting for a chair to open" : formatQueueLine(etaMin, ahead ?? 0)}
+          {etaMin === null ? t.pass.ticket.waitingForChair : formatQueueLine(etaMin, ahead ?? 0, locale)}
           {etaMin !== null && etaMin > 1 && (
-            <span className="text-zinc-500"> · around {formatClock(new Date(now.getTime() + etaMin * 60000), timezone)}</span>
+            <span className="text-zinc-500">
+              {" · "}
+              {interpolate(t.pass.ticket.around, {
+                time: formatClock(new Date(now.getTime() + etaMin * 60000), timezone, locale),
+              })}
+            </span>
           )}
         </p>
       )}
       {ticket.status === "waiting" && barberOverMin > 0 && (
-        <p className="mt-1 text-xs text-amber-200/80">Your barber is running a little behind — this estimate updates live.</p>
+        <p className="mt-1 text-xs text-amber-200/80">{t.pass.ticket.runningBehind}</p>
       )}
-      {ticket.status === "in_chair" && <p className="mt-2 text-sm text-emerald-300">Enjoy your cut ✂︎</p>}
+      {ticket.status === "in_chair" && <p className="mt-2 text-sm text-emerald-300">{t.pass.ticket.enjoy}</p>}
     </div>
   );
 }
@@ -570,30 +594,37 @@ function AppointmentHeadline({
   appt,
   timezone,
   eta,
+  t,
+  locale,
 }: {
   appt: LiveAppointment;
   timezone: string;
   eta: AppointmentEta | undefined;
+  t: Messages;
+  locale: Locale;
 }) {
   const delayed = eta && eta.delayMin >= 5 && (appt.status === "confirmed" || appt.status === "checked_in");
   return (
     <div className="mt-5">
-      <p className="text-xs text-zinc-500">{formatLongDate(appt.startsAt, timezone)}</p>
-      <p className="font-mono text-5xl font-extrabold tracking-tight text-zinc-50">{formatClock(appt.startsAt, timezone)}</p>
-      <p className="mt-1 font-mono text-sm text-zinc-500">until {formatClock(appt.endsAt, timezone)}</p>
+      <p className="text-xs text-zinc-500">{formatLongDate(appt.startsAt, timezone, locale)}</p>
+      <p className="font-mono text-5xl font-extrabold tracking-tight text-zinc-50">{formatClock(appt.startsAt, timezone, locale)}</p>
+      <p className="mt-1 font-mono text-sm text-zinc-500">
+        {interpolate(t.pass.appointment.until, { time: formatClock(appt.endsAt, timezone, locale) })}
+      </p>
       {delayed && eta && (
         <motion.p
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
         >
-          Running ~{eta.delayMin} min late — expected{" "}
-          <span className="font-mono font-semibold">{formatClock(eta.projectedStart, timezone)}</span>. Updates live.
+          {interpolate(t.pass.appointment.runningLateBefore, { n: eta.delayMin })}{" "}
+          <span className="font-mono font-semibold">{formatClock(eta.projectedStart, timezone, locale)}</span>
+          {t.pass.appointment.runningLateAfter}
         </motion.p>
       )}
       {appt.status === "pending_payment" && appt.holdExpiresAt && (
         <p className="mt-2 text-sm text-amber-300">
-          Slot held until {formatClock(appt.holdExpiresAt, timezone)} — complete payment to confirm.
+          {interpolate(t.pass.appointment.slotHeld, { time: formatClock(appt.holdExpiresAt, timezone, locale) })}
         </p>
       )}
     </div>
@@ -602,46 +633,61 @@ function AppointmentHeadline({
 
 // -------------------------------------------------------------------------------------
 // EZ-001: what to tell the customer about an emergency closure
+
+/** "today at 6:00 pm", "tomorrow at 10:00 am" or "Thu 8 Oct · 10:00 am", in the active language. */
+function formatReopenLocalized(until: string, timezone: string, now: Date, t: Messages, locale: Locale): string {
+  const d = new Date(until);
+  const today = localDateString(now, timezone);
+  const day = localDateString(d, timezone);
+  const time = formatClock(d, timezone, locale);
+  if (day === today) return interpolate(t.pass.closure.reopenToday, { time });
+  if (day === addDays(today, 1)) return interpolate(t.pass.closure.reopenTomorrow, { time });
+  return formatShortDateTime(d, timezone, locale);
+}
+
 function closureNotice({
   booking,
   pass,
   settings,
   now,
+  t,
+  locale,
 }: {
   booking: LiveBooking;
   pass: PassData;
   settings: ShopSettings;
   now: Date;
+  t: Messages;
+  locale: Locale;
 }): { title: string; message: string | null; detail: string; bookAgain: boolean } | null {
+  const copy = t.pass.closure;
   const closure = pass.closure;
   const closedNow = isShopClosed(settings, now);
-  const reopens = settings.closedUntil ? formatReopen(settings.closedUntil, settings.timezone, now) : null;
+  const reopens = settings.closedUntil ? formatReopenLocalized(settings.closedUntil, settings.timezone, now, t, locale) : null;
   const paid = booking.paymentStatus === "paid";
 
   if (booking.kind === "ticket" && booking.status === "cancelled" && booking.cancelReason === "shop_closed") {
     return {
-      title: "Shop closed — your ticket was cancelled",
+      title: copy.ticketCancelledTitle,
       message: closure?.message ?? settings.closureMessage,
-      detail:
-        (paid ? "Your online payment will be refunded. " : "") +
-        "You're welcome to book a time or join the queue again once we reopen.",
+      detail: (paid ? copy.onlineRefund : "") + copy.welcomeBack,
       bookAgain: true,
     };
   }
   if (booking.kind === "appointment" && closure?.action === "hold_released" && booking.status === "expired") {
     return {
-      title: "Shop closed — your unpaid booking was released",
+      title: copy.holdReleasedTitle,
       message: closure.message,
-      detail: (paid ? "Your payment will be refunded. " : "") + "Please book another time.",
+      detail: (paid ? copy.paymentRefund : "") + copy.bookAnother,
       bookAgain: true,
     };
   }
   const live = booking.status === "confirmed" || booking.status === "checked_in" || booking.status === "called";
   if (booking.kind === "appointment" && live && closure && overlapsClosure(booking, closure)) {
     return {
-      title: "Shop temporarily closed at your booking time",
+      title: copy.atBookingTimeTitle,
       message: closure.message,
-      detail: "Your booking and any payment are kept. Pick one of the times we're holding for you below, or choose another time.",
+      detail: copy.keptDetail,
       bookAgain: false,
     };
   }
@@ -650,11 +696,14 @@ function closureNotice({
       settings.closedUntil !== null &&
       new Date(booking.startsAt).getTime() >= new Date(settings.closedUntil).getTime();
     return {
-      title: `Shop temporarily closed · reopening ${reopens}`,
+      title: interpolate(copy.reopeningTitle, { when: reopens }),
       message: settings.closureMessage,
       detail: unaffected
-        ? `Your booking on ${formatLongDate(booking.startsAt, settings.timezone)} at ${formatClock(booking.startsAt, settings.timezone)} isn't affected.`
-        : "Sorry for the trouble.",
+        ? interpolate(copy.unaffected, {
+            date: formatLongDate(booking.startsAt, settings.timezone, locale),
+            time: formatClock(booking.startsAt, settings.timezone, locale),
+          })
+        : copy.sorry,
       bookAgain: false,
     };
   }

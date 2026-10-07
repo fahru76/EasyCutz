@@ -6,6 +6,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { installApi } from "./api";
 import { App } from "./App";
+import { localeFromCookieString, resolveLocale } from "@/i18n/config";
+import { I18nProvider } from "@/i18n/provider";
 import { startDatabase } from "./db/client";
 import { addSampleActivity } from "./sample-activity";
 
@@ -19,9 +21,14 @@ async function boot() {
   } catch (err) {
     console.warn("[demo] sample activity skipped", err);
   }
+  // Same rule as the server layout: saved choice, then the browser language, then English.
+  const locale = resolveLocale(localeFromCookieString(document.cookie), (navigator.languages ?? []).join(","));
+  document.documentElement.lang = locale;
   root.render(
     <StrictMode>
-      <App />
+      <I18nProvider initialLocale={locale}>
+        <App />
+      </I18nProvider>
     </StrictMode>,
   );
 }

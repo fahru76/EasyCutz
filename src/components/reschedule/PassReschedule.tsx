@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CalendarClock, CircleCheck, Clock, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { apiErrorMessage } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 import { cn, formatDuration } from "@/lib/format";
 import { formatClock, formatShortDateTime, localDateString } from "@/lib/time";
 import type { ApiError, Barber, LiveAppointment, PassReschedule as PassRescheduleData, Shift, ShopSettings, TimeSlot } from "@/lib/types/domain";
@@ -28,12 +30,13 @@ export function PassReschedule({
   barbers: Barber[];
   autoOpen: boolean;
 }) {
+  const { t, locale, format } = useI18n();
   const router = useRouter();
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const barberName = (id: string) => barbers.find((b) => b.id === id)?.displayName ?? "your barber";
+  const barberName = (id: string) => barbers.find((b) => b.id === id)?.displayName ?? t.pass.reschedule.yourBarber;
   const earlier = data.offers.filter((o) => new Date(o.startsAt) < new Date(appt.startsAt));
   const open = autoOpen || data.offers.length > 0 || data.requested;
 
@@ -47,7 +50,7 @@ export function PassReschedule({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setError(((await res.json()) as ApiError).message ?? "Couldn't move your booking.");
+        setError(apiErrorMessage(t, (await res.json()) as ApiError));
         router.refresh();
         return;
       }
@@ -55,7 +58,7 @@ export function PassReschedule({
       setPicking(false);
       router.refresh();
     } catch {
-      setError("Network error — please try again.");
+      setError(t.errors.network);
     } finally {
       setBusy(null);
     }
@@ -71,14 +74,16 @@ export function PassReschedule({
           <p className="font-semibold text-zinc-100">
             {data.offers.length > 0
               ? earlier.length === data.offers.length
-                ? "An earlier time is free"
-                : "We're holding new times for you"
+                ? t.pass.reschedule.earlierFree
+                : t.pass.reschedule.holdingTimes
               : data.requested
-                ? "Please pick a new time"
-                : "Need a different time?"}
+                ? t.pass.reschedule.pleasePick
+                : t.pass.reschedule.needDifferent}
           </p>
           {data.movedFrom && (
-            <p className="text-xs text-zinc-500">Moved from {formatShortDateTime(data.movedFrom, settings.timezone)}</p>
+            <p className="text-xs text-zinc-500">
+              {format(t.pass.reschedule.movedFrom, { when: formatShortDateTime(data.movedFrom, settings.timezone, locale) })}
+            </p>
           )}
         </div>
       </div>
@@ -90,7 +95,7 @@ export function PassReschedule({
             animate={{ opacity: 1, y: 0 }}
             className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100"
           >
-            <CircleCheck className="size-4" /> Moved to {done}. Your pass is updated.
+            <CircleCheck className="size-4" /> {format(t.pass.reschedule.movedTo, { when: done })}
           </motion.p>
         )}
       </AnimatePresence>
@@ -99,7 +104,7 @@ export function PassReschedule({
         <div className="mt-4 space-y-2">
           {data.offers.map((o) => {
             const isEarlier = new Date(o.startsAt) < new Date(appt.startsAt);
-            const label = `${formatShortDateTime(o.startsAt, settings.timezone)} · ${barberName(o.barberId)}`;
+            const label = `${formatShortDateTime(o.startsAt, settings.timezone, locale)} · ${barberName(o.barberId)}`;
             return (
               <Button
                 key={o.id}
@@ -111,15 +116,17 @@ export function PassReschedule({
               >
                 <span className="flex items-center gap-2">
                   {isEarlier ? <Zap className="size-4" /> : <Clock className="size-4" />}
-                  {isEarlier ? "Move me earlier · " : ""}
+                  {isEarlier ? t.pass.reschedule.moveEarlier : ""}
                   {label}
                 </span>
               </Button>
             );
           })}
           <p className="text-[11px] text-zinc-500">
-            Held for you until {formatClock(data.offers[0]!.expiresAt, settings.timezone)}
-            {earlier.length > 0 ? ` — or keep ${formatClock(appt.startsAt, settings.timezone)}, nothing changes unless you tap.` : "."}
+            {format(t.pass.reschedule.heldUntil, { time: formatClock(data.offers[0]!.expiresAt, settings.timezone, locale) })}
+            {earlier.length > 0
+              ? format(t.pass.reschedule.orKeep, { time: formatClock(appt.startsAt, settings.timezone, locale) })
+              : "."}
           </p>
         </div>
       )}
@@ -132,7 +139,7 @@ export function PassReschedule({
               onClick={() => setPicking(true)}
               className="text-sm font-semibold text-amber-400 underline-offset-4 hover:underline"
             >
-              {data.offers.length > 0 ? "None of these work? Pick another time" : "Pick another time"}
+              {data.offers.length > 0 ? t.pass.reschedule.noneWork : t.pass.reschedule.pickAnother}
             </button>
           ) : (
             <div className="mt-2">
@@ -151,7 +158,7 @@ export function PassReschedule({
                   void submit(
                     { startsAt: slot.startsAt, barberId },
                     "pick",
-                    `${formatShortDateTime(slot.startsAt, settings.timezone)} · ${barberName(barberId)}`,
+                    `${formatShortDateTime(slot.startsAt, settings.timezone, locale)} · ${barberName(barberId)}`,
                   )
                 }
               />
@@ -161,7 +168,7 @@ export function PassReschedule({
       ) : (
         data.offers.length === 0 && (
           <p className="mt-3 text-sm text-zinc-500">
-            Bookings can be changed online up to {formatDuration(data.cutoffMin)} before. For anything sooner, please WhatsApp the shop.
+            {format(t.pass.reschedule.cutoff, { duration: formatDuration(data.cutoffMin, locale) })}
           </p>
         )
       )}

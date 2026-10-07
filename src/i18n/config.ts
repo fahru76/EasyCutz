@@ -25,6 +25,7 @@ export function resolveLocale(saved: string | null | undefined, acceptLanguage: 
     .filter(Boolean);
   for (const tag of prefs) {
     const base = tag.split("-")[0];
+    if (base === "ms") return "ms";
     if (base === "en") return "en";
   }
   return DEFAULT_LOCALE;
