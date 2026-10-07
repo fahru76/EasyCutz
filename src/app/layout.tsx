@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { getRequestLocale } from "@/i18n/server";
+import { I18nProvider } from "@/i18n/provider";
 import "./globals.css";
 
 // Self-hosted variable fonts (no build-time call to Google Fonts; no third-party requests at runtime).
@@ -34,10 +36,13 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const locale = await getRequestLocale();
   return (
-    <html lang="en" className={`${jakarta.variable} ${jetbrains.variable} h-full antialiased`}>
-      <body className="flex min-h-full flex-col">{children}</body>
+    <html lang={locale} className={`${jakarta.variable} ${jetbrains.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col">
+        <I18nProvider initialLocale={locale}>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

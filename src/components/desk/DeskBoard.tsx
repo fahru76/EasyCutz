@@ -214,6 +214,7 @@ export function DeskBoard({
   return (
     <div className="flex min-h-dvh flex-col">
       <SiteHeader
+        languageSwitch={false}
         wide
         shopName={settings.shopName}
         status={live.status}

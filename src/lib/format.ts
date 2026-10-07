@@ -1,5 +1,8 @@
 /** Display + normalisation helpers shared by client and server. */
 
+import type { Locale } from "@/i18n/config";
+import { getMessages, interpolate } from "@/i18n";
+
 const CURRENCY_SYMBOL: Record<string, string> = { myr: "RM", sgd: "S$", usd: "$" };
 
 /** 4500 -> "RM 45" ; 4550 -> "RM 45.50" */
@@ -10,24 +13,28 @@ export function formatMoney(cents: number, currency = "myr"): string {
   return `${symbol} ${text}`;
 }
 
-/** 45 -> "45 min" ; 75 -> "1h 15m" ; 120 -> "2h" */
-export function formatDuration(minutes: number): string {
+/** 45 -> "45 min" ; 75 -> "1h 15m" ; 120 -> "2h" (BM: "1j 15m") */
+export function formatDuration(minutes: number, locale: Locale = "en"): string {
+  const u = getMessages(locale).common.units;
   const m = Math.max(0, Math.round(minutes));
-  if (m < 60) return `${m} min`;
+  if (m < 60) return interpolate(u.min, { n: m });
   const h = Math.floor(m / 60);
   const rest = m % 60;
-  return rest === 0 ? `${h}h` : `${h}h ${rest}m`;
+  return rest === 0 ? interpolate(u.hours, { h }) : interpolate(u.hoursMinutes, { h, m: rest });
 }
 
 /** Rounded wait string used on badges: 0 -> "Now", 7 -> "~7 min", 63 -> "~1h 5m" */
-export function formatWait(minutes: number): string {
-  if (minutes <= 1) return "Now";
-  return `~${formatDuration(minutes)}`;
+export function formatWait(minutes: number, locale: Locale = "en"): string {
+  const w = getMessages(locale).common.wait;
+  if (minutes <= 1) return w.now;
+  return interpolate(w.approx, { duration: formatDuration(minutes, locale) });
 }
 
 /** Queue headline: "~25 mins wait • 2 ahead" (or "No wait • 0 ahead"). */
-export function formatQueueLine(waitMin: number, ahead: number): string {
-  return `${waitMin <= 1 ? "No wait" : `~${waitMin} mins wait`} • ${ahead} ahead`;
+export function formatQueueLine(waitMin: number, ahead: number, locale: Locale = "en"): string {
+  const w = getMessages(locale).common.wait;
+  const wait = waitMin <= 1 ? w.noWait : interpolate(w.minsWait, { n: waitMin });
+  return `${wait} • ${interpolate(w.ahead, { n: ahead })}`;
 }
 
 /**

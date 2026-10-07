@@ -4,7 +4,9 @@ import { Scissors } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { LiveStatus } from "@/hooks/use-live-shop";
+import { useI18n } from "@/i18n/provider";
 import { cn } from "@/lib/format";
+import { LanguageSwitch } from "./LanguageSwitch";
 import { LiveDot } from "./primitives";
 
 export function SiteHeader({
@@ -12,12 +14,16 @@ export function SiteHeader({
   status,
   right,
   wide = false,
+  languageSwitch = true,
 }: {
   wide?: boolean;
+  /** EZ-010: shown on customer screens; staff screens are English-only for now. */
+  languageSwitch?: boolean;
   shopName: string;
   status?: LiveStatus;
   right?: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <header className="sticky top-0 z-30 border-b border-white/10 glass-strong">
       <div className={cn("mx-auto flex h-16 items-center", wide ? "max-w-7xl" : "max-w-5xl")}>
@@ -38,12 +44,17 @@ export function SiteHeader({
                 "hidden items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider sm:inline-flex",
                 status === "live" ? "text-emerald-400" : status === "offline" ? "text-rose-300" : "text-zinc-500",
               )}
-              title={status === "live" ? "Realtime connected" : "Reconnecting…"}
+              title={status === "live" ? t.common.status.liveTitle : t.common.status.reconnectingTitle}
             >
               <LiveDot tone={status === "live" ? "emerald" : status === "offline" ? "rose" : "zinc"} />
-              {status === "live" ? "Live" : status === "offline" ? "Reconnecting" : "Connecting"}
+              {status === "live"
+                ? t.common.status.live
+                : status === "offline"
+                  ? t.common.status.reconnecting
+                  : t.common.status.connecting}
             </span>
           )}
+          {languageSwitch && <LanguageSwitch />}
           {right}
         </div>
       </div>

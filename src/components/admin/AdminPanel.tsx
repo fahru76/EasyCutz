@@ -87,6 +87,7 @@ export function AdminPanel({
   return (
     <div className="flex min-h-dvh flex-col">
       <SiteHeader
+        languageSwitch={false}
         wide
         shopName={settings.shop_name}
         right={<span className="hidden text-sm text-zinc-400 sm:inline">{ownerName} · Owner</span>}

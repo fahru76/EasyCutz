@@ -3,6 +3,9 @@
  * All "local" values refer to the shop's IANA timezone, never the browser's.
  */
 
+import { intlLocale, type Locale } from "@/i18n/config";
+import { getMessages } from "@/i18n";
+
 export interface ZonedParts {
   year: number;
   month: number; // 1-12
@@ -111,8 +114,8 @@ export function addMinutes(date: Date, minutes: number): Date {
   return new Date(date.getTime() + minutes * 60000);
 }
 
-export function formatClock(date: Date | string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-MY", {
+export function formatClock(date: Date | string, timeZone: string, locale: Locale = "en"): string {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     timeZone,
     hour: "numeric",
     minute: "2-digit",
@@ -128,24 +131,29 @@ export function formatMinuteOfDay(minute: number): string {
   return `${h12}:${pad(m)} ${suffix}`;
 }
 
-export function formatDayLabel(dateString: string, todayString: string): { weekday: string; day: string; month: string } {
+export function formatDayLabel(
+  dateString: string,
+  todayString: string,
+  locale: Locale = "en",
+): { weekday: string; day: string; month: string } {
+  const words = getMessages(locale).common.time;
   const [y, m, d] = dateString.split("-").map(Number) as [number, number, number];
   const dt = new Date(Date.UTC(y, m - 1, d, 12));
   const weekday =
     dateString === todayString
-      ? "Today"
+      ? words.today
       : dateString === addDays(todayString, 1)
-        ? "Tmrw"
-        : new Intl.DateTimeFormat("en-MY", { weekday: "short", timeZone: "UTC" }).format(dt);
+        ? words.tomorrow
+        : new Intl.DateTimeFormat(intlLocale(locale), { weekday: "short", timeZone: "UTC" }).format(dt);
   return {
     weekday,
     day: String(d),
-    month: new Intl.DateTimeFormat("en-MY", { month: "short", timeZone: "UTC" }).format(dt),
+    month: new Intl.DateTimeFormat(intlLocale(locale), { month: "short", timeZone: "UTC" }).format(dt),
   };
 }
 
-export function formatLongDate(date: Date | string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-MY", {
+export function formatLongDate(date: Date | string, timeZone: string, locale: Locale = "en"): string {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     timeZone,
     weekday: "long",
     day: "numeric",
@@ -153,9 +161,9 @@ export function formatLongDate(date: Date | string, timeZone: string): string {
   }).format(typeof date === "string" ? new Date(date) : date);
 }
 
-/** "Tue 6 Oct · 2:30 pm" in the shop timezone. */
-export function formatShortDateTime(date: Date | string, timeZone: string): string {
+/** "Tue 6 Oct · 2:30 pm" (BM: "Sel 6 Okt · 2:30 PTG") in the shop timezone. */
+export function formatShortDateTime(date: Date | string, timeZone: string, locale: Locale = "en"): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  const day = new Intl.DateTimeFormat("en-MY", { timeZone, weekday: "short", day: "numeric", month: "short" }).format(d);
-  return `${day.replace(",", "")} · ${formatClock(d, timeZone)}`;
+  const day = new Intl.DateTimeFormat(intlLocale(locale), { timeZone, weekday: "short", day: "numeric", month: "short" }).format(d);
+  return `${day.replace(",", "")} · ${formatClock(d, timeZone, locale)}`;
 }
