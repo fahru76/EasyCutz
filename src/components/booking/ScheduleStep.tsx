@@ -130,7 +130,7 @@ export function ScheduleStep({
                   "flex w-16 shrink-0 snap-start flex-col items-center rounded-2xl border py-3 transition-all",
                   selected
                     ? "border-amber-500 bg-amber-500 text-zinc-950"
-                    : "border-zinc-800/80 bg-zinc-900/50 text-zinc-300 hover:border-zinc-700",
+                    : "border-white/10 glass text-zinc-300 hover:border-white/15",
                   !d.open && "cursor-not-allowed border-dashed opacity-35",
                 )}
               >
@@ -175,7 +175,7 @@ export function ScheduleStep({
         )}
 
         {state.kind === "ready" && state.data.slots.length === 0 && (
-          <div className="flex flex-col items-center rounded-2xl border border-dashed border-zinc-800 p-8 text-center">
+          <div className="flex flex-col items-center rounded-2xl border border-dashed border-white/10 p-8 text-center">
             <CalendarX2 className="size-8 text-zinc-600" />
             <p className="mt-3 font-semibold text-zinc-300">{date === today ? "No more times today" : "Fully booked"}</p>
             <p className="mt-1 text-sm text-zinc-500">

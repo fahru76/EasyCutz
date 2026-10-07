@@ -183,7 +183,7 @@ export function ClosurePanel({
             </div>
           </div>
           {result && (
-            <p className="mt-3 rounded-xl bg-zinc-950/40 p-3 text-sm text-zinc-200">
+            <p className="mt-3 rounded-xl glass-inset p-3 text-sm text-zinc-200">
               {result.ticketsCancelled} walk-in ticket{result.ticketsCancelled === 1 ? "" : "s"} cancelled ·{" "}
               {result.appointments} booking{result.appointments === 1 ? "" : "s"} affected
               {result.appointments > 0 && ` (${result.appointmentsWithOffers} with new times held)`}
@@ -332,7 +332,7 @@ function CloseShopForm({
                 "rounded-full border px-3 py-1.5 text-sm font-semibold",
                 reason === r.id
                   ? "border-rose-400 bg-rose-500/20 text-rose-100"
-                  : "border-zinc-800 text-zinc-300 hover:border-zinc-700",
+                  : "border-white/10 text-zinc-300 hover:border-white/15",
               )}
             >
               {r.label}
@@ -355,7 +355,7 @@ function CloseShopForm({
                 "rounded-full border px-3 py-1.5 text-sm font-semibold",
                 choice === o.id
                   ? "border-amber-500 bg-amber-500 text-zinc-950"
-                  : "border-zinc-800 text-zinc-300 hover:border-zinc-700",
+                  : "border-white/10 text-zinc-300 hover:border-white/15",
               )}
             >
               {o.label}
@@ -546,8 +546,8 @@ function AffectedList({
   }
 
   return (
-    <Card className={cn("overflow-hidden", active ? "border-rose-500/30" : "border-zinc-800")}>
-      <div className="flex flex-wrap items-center gap-3 border-b border-zinc-800/80 p-4">
+    <Card className={cn("overflow-hidden", active ? "border-rose-500/30" : "border-white/10")}>
+      <div className="flex flex-wrap items-center gap-3 border-b border-white/10 p-4">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold uppercase tracking-wider text-zinc-300">Affected customers</p>
           <p className="text-xs text-zinc-500">
@@ -586,7 +586,7 @@ function AffectedList({
         )}
       </div>
 
-      {error && <p className="border-b border-zinc-800/80 bg-rose-500/5 p-3 text-sm text-rose-200">{error}</p>}
+      {error && <p className="border-b border-white/10 bg-rose-500/5 p-3 text-sm text-rose-200">{error}</p>}
       {summary.impacts.length === 0 && (
         <p className="p-6 text-center text-sm text-zinc-500">No walk-ins or bookings were affected.</p>
       )}
@@ -619,7 +619,7 @@ function AffectedList({
                     <Sparkles className="size-3.5 text-amber-400" />
                     {i.offers.length
                       ? i.offers.map((o) => (
-                          <span key={o.id} className="rounded-md border border-zinc-800 px-1.5 py-0.5 font-mono text-zinc-300">
+                          <span key={o.id} className="rounded-md border border-white/10 px-1.5 py-0.5 font-mono text-zinc-300">
                             {formatShortDateTime(o.startsAt, settings.timezone)} · {barberName(o.barberId)}
                           </span>
                         ))
@@ -644,7 +644,7 @@ function AffectedList({
                       className={cn(
                         "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold",
                         i.notifiedAt
-                          ? "border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+                          ? "border border-white/10 text-zinc-300 hover:border-white/15"
                           : "bg-amber-500 text-zinc-950 hover:bg-amber-400",
                       )}
                     >
@@ -654,7 +654,7 @@ function AffectedList({
                       href={smsLink(i.phone, message)}
                       onClick={() => void markNotified(i.id)}
                       aria-label={`SMS ${i.customerName}`}
-                      className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+                      className="inline-flex size-9 items-center justify-center rounded-lg border border-white/10 text-zinc-300 hover:border-white/15"
                     >
                       <MessageSquare className="size-4" />
                     </a>
@@ -674,7 +674,7 @@ function AffectedList({
                     )}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 px-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-sm font-semibold text-zinc-300 hover:border-white/15"
                   >
                     <MessageCircle className="size-4" /> Confirm
                   </a>

@@ -107,7 +107,7 @@ export function RescheduleSlotPicker({
 
   return (
     <div className="space-y-4">
-      <div role="radiogroup" aria-label="Barber" className="grid grid-cols-2 gap-1 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-1 text-sm font-semibold">
+      <div role="radiogroup" aria-label="Barber" className="grid grid-cols-2 gap-1 rounded-2xl border border-white/10 glass-inset p-1 text-sm font-semibold">
         {[false, true].map((any) => (
           <button
             key={String(any)}
@@ -144,7 +144,7 @@ export function RescheduleSlotPicker({
               }}
               className={cn(
                 "flex w-14 shrink-0 flex-col items-center rounded-xl border py-2 text-xs",
-                d.date === date ? "border-amber-500 bg-amber-500 text-zinc-950" : "border-zinc-800 bg-zinc-900/60 text-zinc-300",
+                d.date === date ? "border-amber-500 bg-amber-500 text-zinc-950" : "border-white/10 glass text-zinc-300",
                 !d.open && "cursor-not-allowed border-dashed opacity-35",
               )}
             >
@@ -165,7 +165,7 @@ export function RescheduleSlotPicker({
         </div>
       )}
       {slots && slots.length === 0 && (
-        <p className="rounded-xl border border-dashed border-zinc-800 p-4 text-center text-sm text-zinc-500">
+        <p className="rounded-xl border border-dashed border-white/10 p-4 text-center text-sm text-zinc-500">
           No free {formatDuration(durationMin)} window this day{anyBarber ? "" : " — try “Any barber” or another date"}.
         </p>
       )}

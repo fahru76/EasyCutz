@@ -62,7 +62,7 @@ export function BarberRoster({
             "relative flex w-[78%] max-w-[260px] shrink-0 snap-start flex-col rounded-3xl border p-5 text-left transition-all sm:w-60",
             barberId === "any"
               ? "border-amber-500/70 bg-gradient-to-br from-amber-500/15 to-zinc-900/60"
-              : "border-zinc-800/80 bg-zinc-900/50 hover:border-zinc-700",
+              : "border-white/10 glass hover:border-white/15",
           )}
         >
           <span className="flex size-14 items-center justify-center rounded-2xl bg-amber-500 text-zinc-950">
@@ -100,7 +100,7 @@ export function BarberRoster({
                 "relative flex w-[78%] max-w-[260px] shrink-0 snap-start flex-col rounded-3xl border p-5 text-left transition-all sm:w-60",
                 selected
                   ? "border-amber-500/70 bg-amber-500/[0.07]"
-                  : "border-zinc-800/80 bg-zinc-900/50 hover:border-zinc-700",
+                  : "border-white/10 glass hover:border-white/15",
                 disabled && "cursor-not-allowed opacity-45",
               )}
             >

@@ -145,7 +145,7 @@ export function AdminPanel({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             className={cn(
-              "fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-2xl border bg-zinc-950/95 p-4 text-center text-sm shadow-2xl backdrop-blur",
+              "fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-2xl border glass-strong p-4 text-center text-sm shadow-2xl",
               toast.tone === "ok" ? "border-emerald-500/40 text-emerald-200" : "border-rose-500/40 text-rose-200",
             )}
           >
@@ -388,7 +388,7 @@ function ItemRow({
           aria-label={`Move ${name} up`}
           disabled={!onUp}
           onClick={onUp}
-          className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-20"
+          className="rounded-md p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-20"
         >
           <ArrowUp className="size-4" />
         </button>
@@ -397,7 +397,7 @@ function ItemRow({
           aria-label={`Move ${name} down`}
           disabled={!onDown}
           onClick={onDown}
-          className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-20"
+          className="rounded-md p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-20"
         >
           <ArrowDown className="size-4" />
         </button>
@@ -412,7 +412,7 @@ function ItemRow({
         type="button"
         onClick={onEdit}
         aria-label={`Edit ${name}`}
-        className="flex size-10 items-center justify-center rounded-xl border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+        className="flex size-10 items-center justify-center rounded-xl border border-white/10 text-zinc-300 hover:border-white/15"
       >
         <Pencil className="size-4" />
       </button>
@@ -453,7 +453,7 @@ function ItemForm({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       onSubmit={submit}
-      className="space-y-4 rounded-2xl border border-amber-500/40 bg-zinc-900/80 p-4"
+      className="space-y-4 rounded-2xl border border-amber-500/40 glass p-4"
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name" htmlFor={`name-${idp}`}>
@@ -591,7 +591,7 @@ function BreaksTab({ barbers, breaks, run }: { barbers: BarberRow[]; breaks: Bre
         const rows = byBarber(barber.id);
         return (
           <Card key={barber.id} className="overflow-hidden">
-            <p className="border-b border-zinc-800/80 px-4 py-3 font-semibold">{barber.display_name}</p>
+            <p className="border-b border-white/10 px-4 py-3 font-semibold">{barber.display_name}</p>
             {rows.length === 0 && <p className="p-4 text-sm text-zinc-500">No recurring breaks.</p>}
             <ul className="divide-y divide-zinc-800/70">
               {rows.map((b) =>
@@ -729,7 +729,7 @@ function BreakForm({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       onSubmit={submit}
-      className="space-y-4 rounded-2xl border border-amber-500/30 bg-zinc-900/60 p-4"
+      className="space-y-4 rounded-2xl border border-amber-500/30 glass p-4"
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Barber" htmlFor={`break-barber-${fid}`}>
@@ -787,7 +787,7 @@ function BreakForm({
               onClick={() => toggleDay(day)}
               className={cn(
                 "w-12 rounded-lg border py-1.5 text-xs font-semibold",
-                d.weekdays.includes(day) ? "border-amber-500 bg-amber-500 text-zinc-950" : "border-zinc-800 text-zinc-400",
+                d.weekdays.includes(day) ? "border-amber-500 bg-amber-500 text-zinc-950" : "border-white/10 text-zinc-400",
               )}
             >
               {w}
@@ -1002,7 +1002,7 @@ function describeValue(key: string, value: unknown, currency: string): string {
 
 function LogTab({ changes, timezone, currency }: { changes: ChangeRow[]; timezone: string; currency: string }) {
   if (changes.length === 0) {
-    return <p className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">No changes yet.</p>;
+    return <p className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">No changes yet.</p>;
   }
   const fmt = new Intl.DateTimeFormat("en-MY", { timeZone: timezone, dateStyle: "medium", timeStyle: "short" });
   return (

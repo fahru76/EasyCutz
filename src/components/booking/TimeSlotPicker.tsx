@@ -77,7 +77,7 @@ export function TimeSlotPicker({
 
       {/* Day-part tabs */}
       <LayoutGroup id="daypart-tabs">
-        <div role="tablist" aria-label="Time of day" className="grid grid-cols-3 gap-1 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-1">
+        <div role="tablist" aria-label="Time of day" className="grid grid-cols-3 gap-1 rounded-2xl border border-white/10 glass-inset p-1">
           {grid.map((g) => {
             const isActive = g.part === activePart;
             const empty = g.available === 0;
@@ -147,7 +147,7 @@ export function TimeSlotPicker({
                         "h-11 rounded-xl border font-mono text-sm font-semibold tabular transition-colors",
                         selected?.startsAt === cell.slot.startsAt
                           ? "border-amber-500 bg-amber-500 text-zinc-950 shadow-[0_6px_20px_-8px_rgb(245_158_11/0.8)]"
-                          : "border-zinc-800 bg-zinc-900/60 text-zinc-100 hover:border-amber-500/50",
+                          : "border-white/10 glass text-zinc-100 hover:border-amber-500/50",
                       )}
                     >
                       :{String(cell.minute).padStart(2, "0")}
@@ -156,7 +156,7 @@ export function TimeSlotPicker({
                     <span
                       key={cell.minute}
                       aria-hidden
-                      className="flex h-11 items-center justify-center rounded-xl border border-dashed border-zinc-800/70 font-mono text-xs text-zinc-700 line-through"
+                      className="flex h-11 items-center justify-center rounded-xl border border-dashed border-white/10 font-mono text-xs text-zinc-700 line-through"
                     >
                       :{String(cell.minute).padStart(2, "0")}
                     </span>
@@ -170,10 +170,10 @@ export function TimeSlotPicker({
 
       <p className="flex items-center gap-3 text-[11px] text-zinc-500">
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-3 rounded border border-zinc-700 bg-zinc-900" /> Open
+          <span className="size-3 rounded border border-white/15 bg-white/[0.05]" /> Open
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-3 rounded border border-dashed border-zinc-700" /> Taken
+          <span className="size-3 rounded border border-dashed border-white/15" /> Taken
         </span>
       </p>
     </div>

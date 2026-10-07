@@ -14,8 +14,8 @@ type ButtonSize = "sm" | "md" | "lg";
 const variantClass: Record<ButtonVariant, string> = {
   primary:
     "bg-amber-500 text-zinc-950 hover:bg-amber-400 shadow-[0_0_0_1px_rgb(245_158_11/0.4),0_8px_24px_-8px_rgb(245_158_11/0.6)]",
-  secondary: "bg-zinc-900 text-zinc-100 border border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-800/80",
-  ghost: "text-zinc-300 hover:text-zinc-100 hover:bg-zinc-900",
+  secondary: "bg-white/[0.05] text-zinc-100 border border-white/10 hover:border-white/15 hover:bg-white/[0.08]",
+  ghost: "text-zinc-300 hover:text-zinc-100 hover:bg-white/[0.05]",
   danger: "bg-rose-500/10 text-rose-300 border border-rose-500/30 hover:bg-rose-500/20",
   success: "bg-emerald-500 text-zinc-950 hover:bg-emerald-400",
 };
@@ -64,7 +64,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 export function Card({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-2xl border border-zinc-800/80 bg-zinc-900/50 backdrop-blur-sm", className)}
+      className={cn("rounded-2xl border border-white/10 glass", className)}
       {...rest}
     />
   );
@@ -91,7 +91,7 @@ export type BadgeTone = "amber" | "emerald" | "zinc" | "rose" | "sky";
 const toneClass: Record<BadgeTone, string> = {
   amber: "bg-amber-500/10 text-amber-400 border-amber-500/30",
   emerald: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-  zinc: "bg-zinc-800/60 text-zinc-400 border-zinc-700/60",
+  zinc: "bg-white/[0.08] text-zinc-400 border-white/15",
   rose: "bg-rose-500/10 text-rose-300 border-rose-500/30",
   sky: "bg-sky-500/10 text-sky-300 border-sky-500/30",
 };
@@ -155,7 +155,7 @@ export function Avatar({ name, src, size = 56 }: { name: string; src: string | n
         alt={name}
         width={size}
         height={size}
-        className="rounded-2xl border border-zinc-800 object-cover"
+        className="rounded-2xl border border-white/10 object-cover"
         style={{ width: size, height: size }}
       />
     );
@@ -197,7 +197,7 @@ export function Switch({
         "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400",
         "disabled:cursor-not-allowed disabled:opacity-40",
-        checked ? "border-amber-400 bg-amber-500" : "border-zinc-700 bg-zinc-800",
+        checked ? "border-amber-400 bg-amber-500" : "border-white/15 bg-white/10",
       )}
     >
       <motion.span
@@ -238,7 +238,7 @@ export function Field({
 }
 
 export const inputClass =
-  "h-12 w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 text-[15px] text-zinc-100 placeholder:text-zinc-600 " +
+  "h-12 w-full rounded-xl border border-white/10 glass-inset px-4 text-[15px] text-zinc-100 placeholder:text-zinc-600 " +
   "outline-none transition focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20";
 
 export function IconButton({ className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -246,8 +246,8 @@ export function IconButton({ className, ...rest }: ButtonHTMLAttributes<HTMLButt
     <button
       type="button"
       className={cn(
-        "inline-flex size-10 items-center justify-center rounded-xl border border-zinc-800/80 bg-zinc-900 text-zinc-300",
-        "hover:border-zinc-700 hover:text-zinc-100 disabled:opacity-40",
+        "inline-flex size-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-zinc-300",
+        "hover:border-white/15 hover:text-zinc-100 disabled:opacity-40",
         className,
       )}
       {...rest}
@@ -256,5 +256,5 @@ export function IconButton({ className, ...rest }: ButtonHTMLAttributes<HTMLButt
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-xl bg-zinc-800/60", className)} />;
+  return <div className={cn("animate-pulse rounded-xl bg-white/[0.08]", className)} />;
 }

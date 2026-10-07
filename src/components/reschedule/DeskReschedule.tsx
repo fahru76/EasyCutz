@@ -176,7 +176,7 @@ export function DeskReschedule({
     <motion.div
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full space-y-3 rounded-2xl border border-amber-500/40 bg-zinc-950/70 p-3"
+      className="w-full space-y-3 rounded-2xl border border-amber-500/40 glass-inset p-3"
     >
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-zinc-100">
@@ -236,7 +236,7 @@ export function DeskReschedule({
             they already agreed.
           </p>
           {offers.map((o) => (
-            <div key={o.id} className="flex items-center gap-2 rounded-xl border border-zinc-800 p-2">
+            <div key={o.id} className="flex items-center gap-2 rounded-xl border border-white/10 p-2">
               <span className="min-w-0 flex-1 font-mono text-sm text-zinc-100">
                 {formatShortDateTime(o.starts_at, settings.timezone)}
                 <span className="font-sans text-zinc-500"> · {barberName(o.barber_id)}</span>
@@ -258,7 +258,7 @@ export function DeskReschedule({
               </a>
               <a
                 href={smsLink(contact.phone, offerMessage)}
-                className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-300"
+                className="inline-flex size-9 items-center justify-center rounded-lg border border-white/10 text-zinc-300"
                 aria-label="Send via SMS"
               >
                 <MessageSquare className="size-4" />

@@ -64,7 +64,7 @@ export function WalkInStep({
           <Stat icon={<Users className="size-4" />} label="Ahead of you" value={String(estimate.aheadCount)} />
           <Stat icon={<Armchair className="size-4" />} label="Chairs open" value={String(snapshot.onDutyIds.length)} />
         </div>
-        <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-4 py-3 text-sm text-zinc-400">
+        <div className="border-t border-white/10 glass-inset px-4 py-3 text-sm text-zinc-400">
           <span className="font-mono text-amber-400">
             {formatQueueLine(estimate.waitMin, estimate.aheadCount)}
           </span>{" "}

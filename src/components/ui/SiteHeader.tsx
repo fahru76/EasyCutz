@@ -19,7 +19,7 @@ export function SiteHeader({
   right?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b border-white/10 glass-strong">
       <div className={cn("mx-auto flex h-16 items-center", wide ? "max-w-7xl" : "max-w-5xl")}>
       <div className="flex w-full items-center justify-between gap-3 px-4">
         <Link href="/" className="flex items-center gap-2.5">

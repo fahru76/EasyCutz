@@ -222,7 +222,7 @@ export function DeskBoard({
             {isOwner && (
               <Link
                 href="/desk/admin"
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-zinc-800 px-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-zinc-100"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold text-zinc-300 hover:border-white/15 hover:text-zinc-100"
               >
                 <Settings2 className="size-4" /> Admin
               </Link>
@@ -231,7 +231,7 @@ export function DeskBoard({
             <button
               type="button"
               onClick={() => void signOut()}
-              className="flex size-9 items-center justify-center rounded-xl border border-zinc-800 text-zinc-400 hover:text-zinc-100"
+              className="flex size-9 items-center justify-center rounded-xl border border-white/10 text-zinc-400 hover:text-zinc-100"
               aria-label="Sign out"
             >
               <LogOut className="size-4" />
@@ -434,8 +434,8 @@ export function DeskBoard({
             className={cn(
               "fixed inset-x-4 bottom-6 z-50 mx-auto max-w-sm rounded-2xl border p-4 text-center text-sm shadow-2xl backdrop-blur",
               toast.tone === "ok"
-                ? "border-emerald-500/40 bg-zinc-950/95 text-emerald-200"
-                : "border-rose-500/40 bg-zinc-950/95 text-rose-200",
+                ? "border-emerald-500/40 glass-strong text-emerald-200"
+                : "border-rose-500/40 glass-strong text-rose-200",
             )}
           >
             {toast.text}
@@ -472,7 +472,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: Badg
     rose: "text-rose-300",
   };
   return (
-    <div className="min-w-[72px] rounded-xl border border-zinc-800/80 bg-zinc-900/50 px-3 py-2 text-center">
+    <div className="min-w-[72px] rounded-xl border border-white/10 glass px-3 py-2 text-center">
       <p className={cn("text-xl font-bold tabular", color[tone])}>{value}</p>
       <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
     </div>
@@ -555,7 +555,7 @@ function ChairCard({
         <Switch checked={barber.isOnDuty} onChange={onDuty} label={`${barber.displayName} on duty`} disabled={pending === `duty:${barber.id}`} />
       </div>
 
-      <div className="mt-4 min-h-[112px] flex-1 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3">
+      <div className="mt-4 min-h-[112px] flex-1 rounded-xl border border-white/10 glass-inset p-3">
         {current ? (
           <>
             <div className="flex items-center justify-between">
@@ -576,7 +576,7 @@ function ChairCard({
             <p className="mt-2 font-mono text-lg font-bold">{bookingLabel(current, contacts.get(current.id)).code}</p>
             <p className="truncate text-sm text-zinc-300">{bookingLabel(current, contacts.get(current.id)).name}</p>
             <p className="truncate text-xs text-zinc-500">{current.serviceSummary}</p>
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-800">
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
               <motion.div
                 className={cn("h-full", over > 15 ? "bg-rose-400" : over > 0 ? "bg-amber-400" : "bg-emerald-400")}
                 initial={{ width: 0 }}
@@ -784,7 +784,7 @@ function ChairCard({
                 key={m}
                 variant="ghost"
                 size="sm"
-                className="border border-zinc-800 px-0 font-mono"
+                className="border border-white/10 px-0 font-mono"
                 loading={pending === `break:${barber.id}`}
                 onClick={() => onTakeBreak(m)}
                 aria-label={`${barber.displayName} takes a ${m}-minute break`}
@@ -877,7 +877,7 @@ function QueueRow({
           aria-label={`Chair for ${ticket.code}`}
           value={seatBarber}
           onChange={(e) => setSeatBarber(e.target.value)}
-          className="h-9 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-200"
+          className="h-9 rounded-lg border border-white/10 bg-zinc-950 px-2 text-sm text-zinc-200"
         >
           {freeChairs.length === 0 && <option value="">No free chair</option>}
           {freeChairs.map((b) => (
@@ -903,7 +903,7 @@ function QueueRow({
                 "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold",
                 dueSoon && !ticket.notifiedAt
                   ? "bg-emerald-500 text-zinc-950 hover:bg-emerald-400"
-                  : "border border-zinc-800 text-zinc-300 hover:border-zinc-700",
+                  : "border border-white/10 text-zinc-300 hover:border-white/15",
               )}
             >
               <MessageCircle className="size-4" /> WhatsApp
@@ -911,7 +911,7 @@ function QueueRow({
             <a
               href={smsLink(contact.phone, message)}
               onClick={onNotified}
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+              className="inline-flex size-9 items-center justify-center rounded-lg border border-white/10 text-zinc-300 hover:border-white/15"
               aria-label="Send SMS"
             >
               <MessageSquare className="size-4" />
@@ -1002,7 +1002,7 @@ function AppointmentRow({
               href={whatsappLink(contact.phone, `Hi ${contact.customerName.split(/\s+/)[0]}, this is ${settings.shopName} about your ${formatClock(appt.startsAt, settings.timezone)} appointment.`)}
               target="_blank"
               rel="noreferrer"
-              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 px-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700"
+              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-sm font-semibold text-zinc-300 hover:border-white/15"
             >
               <MessageCircle className="size-4" /> WhatsApp
             </a>
@@ -1124,7 +1124,7 @@ function DelayedRow({
               "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold",
               needsNotice
                 ? "bg-amber-500 text-zinc-950 hover:bg-amber-400"
-                : "border border-zinc-800 text-zinc-300 hover:border-zinc-700",
+                : "border border-white/10 text-zinc-300 hover:border-white/15",
             )}
           >
             <MessageCircle className="size-4" /> {needsNotice ? "Notify delay" : "Notify again"}
@@ -1132,7 +1132,7 @@ function DelayedRow({
           <a
             href={smsLink(contact.phone, message)}
             onClick={onNotified}
-            className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+            className="inline-flex size-9 items-center justify-center rounded-lg border border-white/10 text-zinc-300 hover:border-white/15"
             aria-label="Send delay SMS"
           >
             <MessageSquare className="size-4" />

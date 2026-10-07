@@ -135,7 +135,7 @@ export function CheckoutStep({
                   "flex flex-col rounded-2xl border p-4 text-left transition-all",
                   selected
                     ? "border-amber-500/70 bg-amber-500/[0.07]"
-                    : "border-zinc-800/80 bg-zinc-900/50 hover:border-zinc-700",
+                    : "border-white/10 glass hover:border-white/15",
                   disabled && "cursor-not-allowed opacity-40",
                 )}
               >
@@ -186,7 +186,7 @@ export function CheckoutStep({
             </li>
           ))}
         </ul>
-        <div className="mt-3 flex justify-between border-t border-zinc-800 pt-3 font-semibold">
+        <div className="mt-3 flex justify-between border-t border-white/10 pt-3 font-semibold">
           <span>
             Total <span className="font-mono text-xs font-normal text-zinc-500">· {formatDuration(totals.durationMin)}</span>
           </span>

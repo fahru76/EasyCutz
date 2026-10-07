@@ -65,7 +65,7 @@ export function ServiceMenu({
                     <span
                       className={cn(
                         "rounded-full px-1.5 font-mono text-[10px]",
-                        selected ? "bg-zinc-950/20" : "bg-amber-500/20 text-amber-400",
+                        selected ? "glass-inset" : "bg-amber-500/20 text-amber-400",
                       )}
                     >
                       {count}
@@ -102,7 +102,7 @@ export function ServiceMenu({
                     "group relative flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-all",
                     selected
                       ? "border-amber-500/70 bg-amber-500/[0.07] shadow-[0_0_0_1px_rgb(245_158_11/0.25)]"
-                      : "border-zinc-800/80 bg-zinc-900/50 hover:border-zinc-700",
+                      : "border-white/10 glass hover:border-white/15",
                     atLimit && "opacity-40",
                   )}
                 >
@@ -131,7 +131,7 @@ export function ServiceMenu({
                       "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border transition-colors",
                       selected
                         ? "border-amber-400 bg-amber-500 text-zinc-950"
-                        : "border-zinc-700 text-zinc-500 group-hover:border-zinc-500",
+                        : "border-white/15 text-zinc-500 group-hover:border-zinc-500",
                     )}
                     aria-hidden
                   >
@@ -149,7 +149,7 @@ export function ServiceMenu({
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
             <Sparkles className="size-4 text-amber-500" /> Add-ons
           </h3>
-          <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40">
+          <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-2xl border border-white/10 glass">
             {addons.map((addon) => {
               const on = addonIds.includes(addon.id);
               const disabled = serviceIds.length === 0;

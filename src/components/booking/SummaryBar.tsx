@@ -38,7 +38,7 @@ export function SummaryBar({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 120, opacity: 0 }}
           transition={{ type: "spring", stiffness: 380, damping: 34 }}
-          className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800/80 bg-zinc-950/90 pt-3 backdrop-blur-xl"
+          className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-white/10 glass-strong pt-3"
         >
           <div className="mx-auto flex max-w-5xl items-center gap-3 px-4">
             {onBack && (
@@ -46,7 +46,7 @@ export function SummaryBar({
                 type="button"
                 onClick={onBack}
                 aria-label="Back"
-                className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-zinc-800 text-zinc-300 hover:border-zinc-700"
+                className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 text-zinc-300 hover:border-white/15"
               >
                 <ChevronLeft className="size-5" />
               </button>

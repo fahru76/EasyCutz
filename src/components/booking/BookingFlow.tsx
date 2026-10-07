@@ -239,8 +239,8 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
                         current
                           ? "border-amber-500 bg-amber-500 text-zinc-950"
                           : done
-                            ? "border-zinc-600 bg-zinc-800 text-zinc-200"
-                            : "border-zinc-800 text-zinc-600",
+                            ? "border-zinc-600 bg-white/10 text-zinc-200"
+                            : "border-white/10 text-zinc-600",
                       )}
                     >
                       {done ? <Check className="size-3.5" strokeWidth={3} /> : i + 1}
@@ -248,7 +248,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
                     <span className="hidden sm:inline">{STEP_LABEL[s]}</span>
                   </button>
                   {i < BOOKING_STEPS.length - 1 && (
-                    <span className={cn("h-px flex-1", done ? "bg-zinc-600" : "bg-zinc-800")} aria-hidden />
+                    <span className={cn("h-px flex-1", done ? "bg-zinc-600" : "bg-white/10")} aria-hidden />
                   )}
                 </li>
               );
@@ -332,7 +332,7 @@ export function BookingFlow({ catalog }: { catalog: Catalog }) {
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            className="fixed inset-x-4 top-20 z-50 mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-rose-500/40 bg-zinc-950/95 p-4 text-sm text-rose-100 shadow-2xl backdrop-blur"
+            className="fixed inset-x-4 top-20 z-50 mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-rose-500/40 glass-strong p-4 text-sm text-rose-100 shadow-2xl"
           >
             <TriangleAlert className="mt-0.5 size-5 shrink-0 text-rose-400" />
             <p className="flex-1">{toast}</p>
@@ -360,7 +360,7 @@ function Hero({
   chairs: number;
 }) {
   return (
-    <section className="relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-950 p-5 sm:p-8">
+    <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-950 p-5 sm:p-8">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-20 -top-20 size-64 rounded-full bg-amber-500/10 blur-3xl"
@@ -375,7 +375,7 @@ function Hero({
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <ModeSwitch mode={mode} onMode={onMode} />
-        <div className="flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 font-mono text-xs">
+        <div className="flex items-center gap-2 rounded-full border border-white/10 glass-inset px-3 py-1.5 font-mono text-xs">
           {waitMin === null ? (
             <span className="text-zinc-500">Queue closed · booking open</span>
           ) : (
@@ -414,7 +414,7 @@ function ModeSwitch({
   ];
   return (
     <LayoutGroup id={compact ? "mode-compact" : "mode-hero"}>
-      <div role="radiogroup" aria-label="Booking mode" className="inline-flex rounded-full border border-zinc-800 bg-zinc-950/70 p-1">
+      <div role="radiogroup" aria-label="Booking mode" className="inline-flex rounded-full border border-white/10 glass-inset p-1">
         {items.map((it) => {
           const active = mode === it.id;
           return (

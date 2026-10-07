@@ -317,7 +317,7 @@ export function DigitalPass({
         <motion.article
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative overflow-hidden rounded-[28px] border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 shadow-2xl"
+          className="relative overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-b from-zinc-900 to-zinc-950 shadow-2xl"
         >
           <div className="p-6">
             <div className="flex items-center justify-between">
@@ -350,7 +350,7 @@ export function DigitalPass({
                 return (
                   <li key={s.key} className="flex flex-1 flex-col gap-1.5">
                     <motion.span
-                      className={cn("h-1.5 rounded-full", reached ? "bg-amber-500" : "bg-zinc-800")}
+                      className={cn("h-1.5 rounded-full", reached ? "bg-amber-500" : "bg-white/10")}
                       initial={false}
                       animate={{ opacity: reached ? 1 : 0.6 }}
                     />
@@ -366,7 +366,7 @@ export function DigitalPass({
           {/* Perforation */}
           <div className="relative flex items-center" aria-hidden>
             <span className="absolute -left-3 size-6 rounded-full bg-zinc-950" />
-            <span className="mx-5 w-full border-t-2 border-dashed border-zinc-800" />
+            <span className="mx-5 w-full border-t-2 border-dashed border-white/10" />
             <span className="absolute -right-3 size-6 rounded-full bg-zinc-950" />
           </div>
 
@@ -405,7 +405,7 @@ export function DigitalPass({
             <p className="col-span-2 -mt-2 text-right text-[11px] text-zinc-500">Scan at the counter to check in</p>
           </div>
 
-          <div className="border-t border-zinc-800/80 bg-zinc-950/60 p-6 text-sm">
+          <div className="border-t border-white/10 glass-inset p-6 text-sm">
             <p className="text-zinc-300">{booking.serviceSummary}</p>
             <div className="mt-2 flex items-center justify-between">
               <span className="font-mono text-xs text-zinc-500">{formatDuration(booking.durationMin)}</span>
@@ -468,7 +468,7 @@ export function DigitalPass({
                 )}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900 text-sm font-semibold text-zinc-100 hover:border-zinc-700"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] text-sm font-semibold text-zinc-100 hover:border-white/15"
               >
                 <MessageCircle className="size-4" /> WhatsApp shop
               </a>
